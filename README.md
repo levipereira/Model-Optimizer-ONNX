@@ -6,6 +6,7 @@
 [![Model Optimizer](https://img.shields.io/badge/NVIDIA%20Model%20Optimizer-GitHub%20%7C%20onnx-76B900?logo=nvidia&logoColor=white)](https://github.com/NVIDIA/Model-Optimizer)
 [![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime%20GPU-CUDA%2013%20nightly-005CED?logo=onnx&logoColor=white)](https://onnxruntime.ai/)
 [![model-opt-yolo](https://img.shields.io/badge/model--opt--yolo-v0.1.0-3775A9?logo=pypi&logoColor=white)](pyproject.toml)
+[![Context7](https://img.shields.io/badge/Context7-Docs-blue?logo=data:image/svg%2bxml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSIxMCIgZmlsbD0id2hpdGUiLz48dGV4dCB4PSI3IiB5PSIxNyIgZm9udC1zaXplPSIxNCIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtd2VpZ2h0PSJib2xkIiBmaWxsPSIjMjU2M0VCIj5DPC90ZXh0Pjwvc3ZnPg==)](https://context7.com/levipereira/model-optimizer-yolo)
 
 **ONNX post-training quantization (PTQ)** and **TensorRT** deployment helpers for **YOLO-style** detectors — built on [NVIDIA Model Optimizer](https://github.com/NVIDIA/Model-Optimizer), with COCO calibration and optional Q/DQ **autotune**.
 
