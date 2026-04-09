@@ -18,13 +18,13 @@
 
 ## Quantization workflow and `eval-trt`
 
-**Primary PTQ path:** ONNX exported from **[levipereira/ultralytics](https://github.com/levipereira/ultralytics)** — a deployment-oriented fork (TensorRT-friendly graphs, `onnx_trt`, etc.). You can also quantize ONNX from other sources as long as calibration preprocessing matches the model.
+### COCO mAP with `eval-trt` — export path matters as much as the engine
 
-### COCO mAP with `eval-trt` — three supported engine layouts
+The **PyTorch → ONNX** step defines tensor names, ranks, and post-processing semantics. **`--output-format`** in `eval-trt` must match that export (and the TensorRT build derived from it); the `.engine` layout alone is not enough if the underlying ONNX was produced differently. Flows discussed here assume ONNX exported with **`--dynamic`**, **`--simplify`**, and **`--opset` 18 or newer** (or equivalent flags in your exporter) so shapes and graphs stay consistent through PTQ and `trtexec`.
 
-`model-opt-yolo eval-trt` evaluates a **TensorRT `.engine`** on COCO by matching **how detections leave the network**. You must pass **`--output-format`** so the tool decodes tensors correctly. Full flags and shapes: [`docs/cli-reference.md`](docs/cli-reference.md).
+`model-opt-yolo eval-trt` scores a **TensorRT `.engine`** on COCO by decoding **how detections leave the network** for your stack. Pass **`--output-format`** accordingly. Full flags and shapes: [`docs/cli-reference.md`](docs/cli-reference.md).
 
-| `--output-format` | Typical source | Idea |
+| `--output-format` | Typical source | Role |
 |-------------------|----------------|------|
 | **`onnx_trt`** | **[levipereira/ultralytics](https://github.com/levipereira/ultralytics)** — `format=onnx_trt` / `onnx_trt.py` (four fixed ONNX outputs; see that repo’s detection table). This path is **not** the same as naming the graph “EfficientNMS”: some heads are end-to-end in-network, others use EfficientNMS_TRT in the exporter — TensorRT still exposes `num_dets`, `det_boxes`, `det_scores`, `det_classes`. | Read the four tensors, take the first `num_dets` rows, filter by confidence, **undo letterbox**, COCO category mapping, **pycocotools** mAP. **`efficient_nms`** is accepted as an alias (legacy name). |
 | **`ultralytics`** | **[ultralytics/ultralytics](https://github.com/ultralytics/ultralytics)** TensorRT export with integrated NMS: a **single** output tensor (e.g. `output0`) shaped `[B, N, 6]` (e.g. `N = 300`). | Each row is **`x1, y1, x2, y2, score, class`** in **letterboxed input space** (NMS already applied in the graph). Filter by `--conf-thres`, letterbox inverse, COCO mapping, mAP. |
