@@ -16,23 +16,17 @@
 
 ---
 
-## Quantization workflow and `eval-trt`
+## Table of Contents
 
-### COCO mAP with `eval-trt` — export path matters as much as the engine
-
-The **PyTorch → ONNX** step defines tensor names, ranks, and post-processing semantics. **`--output-format`** in `eval-trt` must match that export (and the TensorRT build derived from it); the `.engine` layout alone is not enough if the underlying ONNX was produced differently. Flows discussed here assume ONNX exported with **`--dynamic`**, **`--simplify`**, and **`--opset` 18 or newer** (or equivalent flags in your exporter) so shapes and graphs stay consistent through PTQ and `trtexec`.
-
-`model-opt-yolo eval-trt` scores a **TensorRT `.engine`** on COCO by decoding **how detections leave the network** for your stack. Pass **`--output-format`** accordingly. Full flags and shapes: [`docs/cli-reference.md`](docs/cli-reference.md).
-
-| `--output-format` | Typical source | Role |
-|-------------------|----------------|------|
-| **`onnx_trt`** | **[levipereira/ultralytics](https://github.com/levipereira/ultralytics)** — `format=onnx_trt` / `onnx_trt.py` (four fixed ONNX outputs; see that repo’s detection table). This path is **not** the same as naming the graph “EfficientNMS”: some heads are end-to-end in-network, others use EfficientNMS_TRT in the exporter — TensorRT still exposes `num_dets`, `det_boxes`, `det_scores`, `det_classes`. | Read the four tensors, take the first `num_dets` rows, filter by confidence, **undo letterbox**, COCO category mapping, **pycocotools** mAP. **`efficient_nms`** is accepted as an alias (legacy name). |
-| **`ultralytics`** | **[ultralytics/ultralytics](https://github.com/ultralytics/ultralytics)** TensorRT export with integrated NMS: a **single** output tensor (e.g. `output0`) shaped `[B, N, 6]` (e.g. `N = 300`). | Each row is **`x1, y1, x2, y2, score, class`** in **letterboxed input space** (NMS already applied in the graph). Filter by `--conf-thres`, letterbox inverse, COCO mapping, mAP. |
-| **`deepstream_yolo`** | **[marcoslucianops/DeepStream-Yolo](https://github.com/marcoslucianops/DeepStream-Yolo)** — engines aligned with the **DeepStream custom bbox parser** (`nvdsparsebbox_Yolo`): one output (often named `output`) `[B, num_anchors, 6]` (e.g. **8400** proposals at 640×640). | Same six fields as the parser (**xyxy + score + class**). In DeepStream, clustering/NMS runs in the pipeline; in **`eval-trt`** we apply **per-class NMS** in Python (`--iou-thres`), then letterbox inverse and mAP. |
-
-**Input tensor:** engines may use `images`, `input`, or another name; `eval-trt` binds the **first** input — ensure your build profile matches **NCHW** and the same letterbox normalization as calibration (**÷255**, RGB).
-
-**Batch:** **`B`** may be dynamic in the engine; evaluation uses **`B = 1`** per image.
+- [Pipeline](#pipeline)
+- [Quick Steps](#quick-steps)
+- [Supported Output Formats](#supported-output-formats)
+- [Technology Stack](#technology-stack)
+- [Getting Started](#getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Run with Docker (default)](#run-with-docker-default)
+  - [Local Installation (optional)](#local-installation-optional)
+- [License](#license)
 
 ---
 
@@ -62,7 +56,41 @@ flowchart TD
 
 ---
 
-## Stack
+## Quick Steps
+
+Run these **inside the container** (or locally after `pip install -e .`):
+
+1. Put ONNX under `models/` (export from PyTorch with the flags you use in production).
+2. `model-opt-yolo download-coco --output-dir data/coco` — COCO val + annotations for **calib** and **eval**.
+3. `model-opt-yolo calib --images_dir data/coco/val2017 --calibration_data_size 500 --img_size 640`
+4. *(Optional)* `model-opt-yolo autotune …` if you want Q/DQ placement search before PTQ.
+5. `model-opt-yolo quantize --calibration_data artifacts/calibration/…npy --onnx_path models/your.onnx` (use `artifacts/autotune/…/optimized_final.onnx` if you autotuned).
+6. `model-opt-yolo build-trt --onnx artifacts/quantized/your…quant.onnx --img-size 640` (default engine: `artifacts/trt_engine/<same-stem>.engine`)
+7. `model-opt-yolo eval-trt --output-format onnx_trt --engine …engine --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json` (use `ultralytics` or `deepstream_yolo` if that matches your engine; see table below)
+
+CLI details: [docs/cli-reference.md](docs/cli-reference.md) · optional docs site: `pip install -e ".[docs]" && mkdocs serve` ([`mkdocs.yml`](mkdocs.yml))
+
+---
+
+## Supported Output Formats
+
+The **PyTorch → ONNX** step defines tensor names, ranks, and post-processing semantics. **`--output-format`** in `eval-trt` must match that export (and the TensorRT build derived from it); the `.engine` layout alone is not enough if the underlying ONNX was produced differently. Flows discussed here assume ONNX exported with **`--dynamic`**, **`--simplify`**, and **`--opset` 18 or newer** (or equivalent flags in your exporter) so shapes and graphs stay consistent through PTQ and `trtexec`.
+
+`model-opt-yolo eval-trt` scores a **TensorRT `.engine`** on COCO by decoding **how detections leave the network** for your stack. Pass **`--output-format`** accordingly. Full flags and shapes: [`docs/cli-reference.md`](docs/cli-reference.md).
+
+| `--output-format` | Typical source | Role |
+|-------------------|----------------|------|
+| **`onnx_trt`** | **[levipereira/ultralytics](https://github.com/levipereira/ultralytics)** — `format=onnx_trt` / `onnx_trt.py` (four fixed ONNX outputs; see that repo's detection table). This path is **not** the same as naming the graph "EfficientNMS": some heads are end-to-end in-network, others use EfficientNMS_TRT in the exporter — TensorRT still exposes `num_dets`, `det_boxes`, `det_scores`, `det_classes`. | Read the four tensors, take the first `num_dets` rows, filter by confidence, **undo letterbox**, COCO category mapping, **pycocotools** mAP. **`efficient_nms`** is accepted as an alias (legacy name). |
+| **`ultralytics`** | **[ultralytics/ultralytics](https://github.com/ultralytics/ultralytics)** TensorRT export with integrated NMS: a **single** output tensor (e.g. `output0`) shaped `[B, N, 6]` (e.g. `N = 300`). | Each row is **`x1, y1, x2, y2, score, class`** in **letterboxed input space** (NMS already applied in the graph). Filter by `--conf-thres`, letterbox inverse, COCO mapping, mAP. |
+| **`deepstream_yolo`** | **[marcoslucianops/DeepStream-Yolo](https://github.com/marcoslucianops/DeepStream-Yolo)** — engines aligned with the **DeepStream custom bbox parser** (`nvdsparsebbox_Yolo`): one output (often named `output`) `[B, num_anchors, 6]` (e.g. **8400** proposals at 640×640). | Same six fields as the parser (**xyxy + score + class**). In DeepStream, clustering/NMS runs in the pipeline; in **`eval-trt`** we apply **per-class NMS** in Python (`--iou-thres`), then letterbox inverse and mAP. |
+
+**Input tensor:** engines may use `images`, `input`, or another name; `eval-trt` binds the **first** input — ensure your build profile matches **NCHW** and the same letterbox normalization as calibration (**÷255**, RGB).
+
+**Batch:** **`B`** may be dynamic in the engine; evaluation uses **`B = 1`** per image.
+
+---
+
+## Technology Stack
 
 | Layer | Choice |
 |------|--------|
@@ -73,7 +101,9 @@ flowchart TD
 
 ---
 
-## Prerequisites (Docker workflow)
+## Getting Started
+
+### Prerequisites
 
 You need a **machine with an NVIDIA GPU** and software on the host so containers can use CUDA / TensorRT:
 
@@ -84,15 +114,13 @@ You need a **machine with an NVIDIA GPU** and software on the host so containers
 | **Docker** | [Docker Engine](https://docs.docker.com/engine/install/) installed and running. |
 | **NVIDIA Container Toolkit** | Lets `docker run --gpus all` pass the GPU into the container. [Install guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html). |
 
-Verify the driver with `nvidia-smi` on the host. After installing the toolkit, follow NVIDIA’s guide to confirm GPU access from Docker (e.g. run `nvidia-smi` inside a test container).
+Verify the driver with `nvidia-smi` on the host. After installing the toolkit, follow NVIDIA's guide to confirm GPU access from Docker (e.g. run `nvidia-smi` inside a test container).
 
----
-
-## Run with Docker (default)
+### Run with Docker (default)
 
 The **`model-opt-yolo`** package is **installed inside the image** at build time. You do **not** need to mount the Git repository to run — only bind-mount three folders on the host so ONNX, datasets, and outputs persist when the container stops.
 
-### 1. Build the image (needs the Dockerfile)
+#### 1. Build the image (needs the Dockerfile)
 
 Clone once (or copy the `docker/` context elsewhere) and build:
 
@@ -102,7 +130,7 @@ cd Model-Optimizer-YOLO
 docker build -f docker/Dockerfile -t modelopt-yolo-ptq .
 ```
 
-### 2. Run with `models/`, `data/`, and `artifacts/` on the host
+#### 2. Run with `models/`, `data/`, and `artifacts/` on the host
 
 Pick a root directory on the host (any path you like) and create the three subfolders:
 
@@ -120,7 +148,7 @@ docker run --gpus all --rm -it \
 
 Inside the container, the working directory is **`/workspace/model-opt-yolo`**. Use the same **relative** paths as in the docs: `models/...`, `data/coco/...`, `artifacts/...` — they map to `$DATA_ROOT` on the host.
 
-### Host ↔ container mapping
+#### Host ↔ container mapping
 
 | Host | Container |
 |------|-----------|
@@ -132,13 +160,11 @@ Change `DATA_ROOT` to another disk or folder if you want.
 
 See [docs/docker-reference.md](docs/docker-reference.md) for build args and persistence details.
 
-### Development (edit mode in Docker)
+#### Development (edit mode in Docker)
 
 To **develop** using the image: build it, then **bind-mount your Git clone** into `/workspace/model-opt-yolo` so you edit the repo on the host and run inside the container. Step-by-step: **[Edit mode with Docker (developers)](docs/installation.md#edit-mode-with-docker-developers)** in [Installation](docs/installation.md).
 
----
-
-## Edit code locally (optional)
+### Local Installation (optional)
 
 If you want to change this project and run **outside** Docker, clone the repo, then install in editable mode from the repository root:
 
@@ -150,22 +176,6 @@ model-opt-yolo --help
 ```
 
 You still need a matching CUDA / TensorRT / ONNX Runtime stack on the host; the Docker image is the supported baseline.
-
----
-
-## Quick steps
-
-Run these **inside the container** (or locally after `pip install -e .`):
-
-1. Put ONNX under `models/` (export from PyTorch with the flags you use in production).
-2. `model-opt-yolo download-coco --output-dir data/coco` — COCO val + annotations for **calib** and **eval**.
-3. `model-opt-yolo calib --images_dir data/coco/val2017 --calibration_data_size 500 --img_size 640`
-4. *(Optional)* `model-opt-yolo autotune …` if you want Q/DQ placement search before PTQ.
-5. `model-opt-yolo quantize --calibration_data artifacts/calibration/…npy --onnx_path models/your.onnx` (use `artifacts/autotune/…/optimized_final.onnx` if you autotuned).
-6. `model-opt-yolo build-trt --onnx artifacts/quantized/your…quant.onnx --img-size 640` (default engine: `artifacts/trt_engine/<same-stem>.engine`)
-7. `model-opt-yolo eval-trt --output-format onnx_trt --engine …engine --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json` (use `ultralytics` or `deepstream_yolo` if that matches your engine; see table above)
-
-CLI details: [docs/cli-reference.md](docs/cli-reference.md) · optional docs site: `pip install -e ".[docs]" && mkdocs serve` ([`mkdocs.yml`](mkdocs.yml))
 
 ---
 
