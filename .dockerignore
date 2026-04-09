@@ -1,0 +1,7 @@
+.git
+**/__pycache__
+*.pyc
+outputs
+data/coco/val2017
+data/coco/*.zip
+models/*.onnx

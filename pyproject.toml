@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "model-opt-yolo"
+version = "0.1.0"
+description = "CLI tools for ONNX PTQ and TensorRT workflows (YOLO-style models, NVIDIA Model Optimizer)"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Levi Pereira", email = "levi.pereira@gmail.com" }]
+requires-python = ">=3.10"
+dependencies = [
+  "datasets>=2.14.4",
+  "numpy>=1.24.0",
+  "opencv-python-headless>=4.8.0",
+  "Pillow>=10.0.0",
+  "tqdm>=4.66.0",
+  "onnx>=1.16.0",
+  "pycocotools>=2.0.7",
+  "pycuda>=2024.1",
+  "torch>=2.0.0",
+]
+
+[project.scripts]
+model-opt-yolo = "model_opt_yolo.cli:main"
+
+[project.optional-dependencies]
+docs = ["mkdocs-material>=9.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["model_opt_yolo*"]

@@ -1,0 +1,33 @@
+# Optional: pip install mkdocs-material && mkdocs serve
+site_name: Model-Optimizer-YOLO
+repo_url: https://github.com/levipereira/Model-Optimizer-YOLO
+edit_uri: edit/main/docs/
+site_description: ONNX PTQ and TensorRT tooling for YOLO-style models (model-opt-yolo)
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+    - scheme: slate
+      primary: indigo
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Workflow: workflow.md
+  - CLI reference: cli-reference.md
+  - Artifacts & logging: artifacts-and-logging.md
+  - Docker reference: docker-reference.md
+  - Troubleshooting: troubleshooting.md
+  - License & attribution: license-and-attribution.md
+
+plugins:
+  - search

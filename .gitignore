@@ -78,6 +78,7 @@ target/
 # Jupyter Notebook
 .ipynb_checkpoints
 
+.garbage_data/
 # IPython
 profile_default/
 ipython_config.py
@@ -193,6 +194,29 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Local datasets and generated artifacts (this project)
+data/coco/val2017/
+data/coco/*.zip
+# Legacy output dir (migrate to artifacts/)
+outputs/*
+!outputs/.gitkeep
+# Generated artifacts (structure tracked via .gitkeep only)
+artifacts/calibration/*
+!artifacts/calibration/.gitkeep
+artifacts/calibration/logs/*
+artifacts/quantized/*
+!artifacts/quantized/.gitkeep
+artifacts/quantized/logs/*
+artifacts/predictions/*
+!artifacts/predictions/.gitkeep
+artifacts/predictions/logs/*
+artifacts/autotune/*
+!artifacts/autotune/.gitkeep
+# Accidental duplicate dataset under scripts/ (canonical: data/coco)
+scripts/data/
+# Optional: uncomment to avoid committing large ONNX files
+# models/*.onnx
 
 # Cursor
 #  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to
