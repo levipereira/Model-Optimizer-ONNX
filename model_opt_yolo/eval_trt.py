@@ -1,18 +1,31 @@
 #!/usr/bin/env python3
 """Evaluate a TensorRT engine on COCO val2017 — mAP@0.5:0.95.
 
-End-to-end bindings (post-processing inside the graph). Batch **B** may be dynamic in the engine; this eval loop uses **B=1** per image.
+Batch **B** may be dynamic; this eval loop uses **B=1** per image.
 
-    - images:      [B, 3, H, W]        (input)
-    - num_dets:    [B, 1]               (valid detection count)
-    - det_boxes:   [B, max_det, 4]      (x1, y1, x2, y2 in input-space)
-    - det_scores:  [B, max_det]         (confidence)
-    - det_classes: [B, max_det]         (class id, 0-indexed COCO80)
+**Output formats** (choose with ``--output-format``):
+
+1. ``onnx_trt`` — Four detection tensors (same layout as
+   `levipereira/ultralytics <https://github.com/levipereira/ultralytics>`_ ``format=onnx_trt`` /
+   ``onnx_trt.py``). This is **not** the same thing as “EfficientNMS” as a plugin name: depending
+   on the head, the exported ONNX may be end-to-end (NMS inside the net) or may insert
+   EfficientNMS_TRT — either way, TensorRT exposes ``num_dets``, ``det_boxes``, ``det_scores``,
+   ``det_classes``. Legacy alias: ``efficient_nms`` (same decoding).
+
+   - Input (e.g. ``images``): ``[B, 3, H, W]``
+   - ``num_dets`` ``[B, 1]``, ``det_boxes`` ``[B, K, 4]``, ``det_scores`` ``[B, K]``,
+     ``det_classes`` ``[B, K]`` (xyxy in letterboxed input space)
+
+2. ``ultralytics`` — Single tensor (e.g. ``output0``), shape ``[B, N, 6]``, one row per
+   post-NMS box: ``x1, y1, x2, y2, score, class_id`` in letterboxed pixel coords.
+
+3. ``deepstream_yolo`` — Single tensor (e.g. ``output``), shape ``[B, num_anchors, 6]``,
+   same six fields as `DeepStream-Yolo` ``nvdsparsebbox_Yolo`` (xyxy + score + class),
+   pre-clustering; this path applies score filtering + per-class NMS before rescaling.
 
 Usage:
-    model-opt-yolo eval-trt \\
-        --engine artifacts/quantized/yolo26n-trt.int8.entropy.quant.engine \\
-        --images data/coco/val2017 \\
+    model-opt-yolo eval-trt --output-format onnx_trt \\
+        --engine model.engine --images data/coco/val2017 \\
         --annotations data/coco/annotations/instances_val2017.json
 """
 
@@ -32,6 +45,14 @@ from tqdm import tqdm
 
 from model_opt_yolo.logutil import add_logging_arguments, setup_logging
 from model_opt_yolo.session_paths import artifacts_root, default_eval_session_log, run_timestamp
+
+
+def normalize_eval_output_format(fmt: str) -> str:
+    """Canonicalize ``--output-format`` (``efficient_nms`` → ``onnx_trt``)."""
+    if fmt == "efficient_nms":
+        return "onnx_trt"
+    return fmt
+
 
 # ---------------------------------------------------------------------------
 # TensorRT + PyCUDA inference
@@ -117,7 +138,7 @@ def preprocess_image(path: str, img_size: int) -> tuple[np.ndarray, dict]:
 
 
 # ---------------------------------------------------------------------------
-# Postprocessing for end-to-end models (post-processed tensors: num_dets, det_*)
+# Postprocessing for onnx_trt four-tensor layout (num_dets, det_*)
 # ---------------------------------------------------------------------------
 
 def postprocess_e2e(
@@ -125,7 +146,7 @@ def postprocess_e2e(
     meta: dict,
     conf_thres: float = 0.001,
 ) -> np.ndarray:
-    """Decode end-to-end det bindings -> Nx6 [x1,y1,x2,y2,conf,cls] in original image coords.
+    """Decode ``num_dets`` / ``det_*`` bindings -> Nx6 [x1,y1,x2,y2,conf,cls] in original image coords.
 
     Expected keys: num_dets [B,1], det_boxes [B,K,4], det_scores [B,K], det_classes [B,K].
     """
@@ -157,6 +178,103 @@ def postprocess_e2e(
     return dets.astype(np.float32)
 
 
+def nms_xyxy_one_class(boxes: np.ndarray, scores: np.ndarray, iou_thres: float) -> np.ndarray:
+    """Greedy NMS; boxes [N,4] xyxy, scores [N]. Returns indices into boxes."""
+    if boxes.size == 0:
+        return np.zeros(0, dtype=np.int64)
+    x1, y1, x2, y2 = boxes.T
+    areas = (x2 - x1).clip(0) * (y2 - y1).clip(0)
+    order = scores.argsort()[::-1]
+    keep: list[int] = []
+    while order.size > 0:
+        i = int(order[0])
+        keep.append(i)
+        if order.size == 1:
+            break
+        rest = order[1:]
+        xx1 = np.maximum(x1[i], x1[rest])
+        yy1 = np.maximum(y1[i], y1[rest])
+        xx2 = np.minimum(x2[i], x2[rest])
+        yy2 = np.minimum(y2[i], y2[rest])
+        inter = (xx2 - xx1).clip(0) * (yy2 - yy1).clip(0)
+        union = areas[i] + areas[rest] - inter
+        ious = np.where(union > 0, inter / union, 0.0)
+        order = rest[ious <= iou_thres]
+    return np.array(keep, dtype=np.int64)
+
+
+def nms_per_class_xyxy(
+    boxes: np.ndarray,
+    scores: np.ndarray,
+    classes: np.ndarray,
+    iou_thres: float,
+) -> np.ndarray:
+    """Per-class greedy NMS; boxes [N,4] xyxy, scores [N], classes [N] int."""
+    if boxes.size == 0:
+        return np.zeros(0, dtype=np.int64)
+    keep_all: list[int] = []
+    for c in np.unique(classes):
+        idx = np.where(classes == c)[0]
+        b = boxes[idx]
+        s = scores[idx]
+        picked = nms_xyxy_one_class(b, s, iou_thres)
+        keep_all.extend(idx[picked].tolist())
+    return np.array(keep_all, dtype=np.int64)
+
+
+def letterbox_to_original(
+    boxes_xyxy: np.ndarray,
+    meta: dict,
+) -> np.ndarray:
+    """Rescale xyxy from letterboxed input tensor coords to original image coords."""
+    out = boxes_xyxy.astype(np.float32).copy()
+    ratio = meta["ratio"]
+    dw, dh = meta["pad"]
+    out[:, [0, 2]] = (out[:, [0, 2]] - dw) / ratio
+    out[:, [1, 3]] = (out[:, [1, 3]] - dh) / ratio
+    out[:, [0, 2]] = np.clip(out[:, [0, 2]], 0, meta["orig_w"])
+    out[:, [1, 3]] = np.clip(out[:, [1, 3]], 0, meta["orig_h"])
+    return out
+
+
+def postprocess_single_tensor_xyxy(
+    pred: np.ndarray,
+    meta: dict,
+    conf_thres: float,
+    *,
+    apply_nms: bool,
+    iou_thres: float,
+) -> np.ndarray:
+    """Decode ``[B, N, 6]`` -> Nx6 in original image coords (x1,y1,x2,y2,conf,cls)."""
+    if pred.ndim != 3 or pred.shape[0] != 1 or pred.shape[2] != 6:
+        raise ValueError(
+            f"Expected pred shape [1, N, 6], got {pred.shape}"
+        )
+    p = pred[0]  # [N, 6]
+    boxes = p[:, :4].astype(np.float32)
+    scores = p[:, 4].astype(np.float32)
+    classes = p[:, 5]
+
+    mask = scores > conf_thres
+    if not mask.any():
+        return np.zeros((0, 6), dtype=np.float32)
+    boxes = boxes[mask]
+    scores = scores[mask]
+    classes = classes[mask]
+
+    cls_int = np.rint(classes).astype(np.int64)
+    if apply_nms:
+        keep = nms_per_class_xyxy(boxes, scores, cls_int, iou_thres)
+        boxes = boxes[keep]
+        scores = scores[keep]
+        classes = classes[keep].astype(np.float32)
+
+    boxes_orig = letterbox_to_original(boxes, meta)
+    return np.column_stack(
+        [boxes_orig, scores[:, None], classes[:, None].astype(np.float32)]
+    ).astype(np.float32)
+
+
 # ---------------------------------------------------------------------------
 # COCO class mapping (80 training classes -> 91 COCO category IDs)
 # ---------------------------------------------------------------------------
@@ -174,6 +292,15 @@ COCO80_TO_COCO91 = [
 # Main evaluation loop
 # ---------------------------------------------------------------------------
 
+def _output_tensor_names(engine) -> set[str]:
+    names: set[str] = set()
+    for i in range(engine.num_io_tensors):
+        n = engine.get_tensor_name(i)
+        if engine.get_tensor_mode(n) == trt.TensorIOMode.OUTPUT:
+            names.add(n)
+    return names
+
+
 def run_eval(
     engine_path: str,
     images_dir: str,
@@ -182,6 +309,9 @@ def run_eval(
     conf_thres: float = 0.001,
     save_json: str | None = None,
     *,
+    output_format: str,
+    output_tensor: str | None = None,
+    iou_thres: float = 0.45,
     log: logging.Logger,
 ) -> None:
     from pycocotools.coco import COCO
@@ -212,6 +342,38 @@ def run_eval(
         log.info("Overriding img_size to %s (from engine)", engine_img_size)
         img_size = engine_img_size
 
+    out_names = _output_tensor_names(engine)
+    if output_format == "onnx_trt":
+        required = {"num_dets", "det_boxes", "det_scores", "det_classes"}
+        if not required <= out_names:
+            raise ValueError(
+                f"output-format onnx_trt requires output tensors {sorted(required)}, "
+                f"found {sorted(out_names)}"
+            )
+    single_tensor_name: str | None = None
+    if output_format in ("ultralytics", "deepstream_yolo"):
+        if not out_names:
+            raise ValueError("Engine has no output tensors")
+        if output_tensor is not None:
+            if output_tensor not in out_names:
+                raise ValueError(
+                    f"--output-tensor {output_tensor!r} is not an output. Available: {sorted(out_names)}"
+                )
+            single_tensor_name = output_tensor
+        elif len(out_names) == 1:
+            single_tensor_name = next(iter(out_names))
+        else:
+            for cand in ("output0", "output", "output1"):
+                if cand in out_names:
+                    single_tensor_name = cand
+                    break
+            if single_tensor_name is None:
+                raise ValueError(
+                    "Multiple output tensors; set --output-tensor to one of: "
+                    f"{sorted(out_names)}"
+                )
+        log.info("Detection output tensor: %s", single_tensor_name)
+
     # Load COCO annotations
     coco_gt = COCO(annotations_json)
     img_ids = sorted(coco_gt.getImgIds())
@@ -236,9 +398,31 @@ def run_eval(
         result = do_inference(context, inputs, outputs, stream)
         t_inf += time.perf_counter() - t0
 
-        # Postprocess (no NMS needed — model is end2end)
         t0 = time.perf_counter()
-        dets = postprocess_e2e(result, meta, conf_thres)
+        if output_format == "onnx_trt":
+            dets = postprocess_e2e(result, meta, conf_thres)
+        elif output_format == "ultralytics":
+            if single_tensor_name is None:
+                raise RuntimeError("internal: single_tensor_name unset for ultralytics")
+            dets = postprocess_single_tensor_xyxy(
+                result[single_tensor_name],
+                meta,
+                conf_thres,
+                apply_nms=False,
+                iou_thres=iou_thres,
+            )
+        elif output_format == "deepstream_yolo":
+            if single_tensor_name is None:
+                raise RuntimeError("internal: single_tensor_name unset for deepstream_yolo")
+            dets = postprocess_single_tensor_xyxy(
+                result[single_tensor_name],
+                meta,
+                conf_thres,
+                apply_nms=True,
+                iou_thres=iou_thres,
+            )
+        else:
+            raise ValueError(f"Unknown output_format: {output_format!r}")
         t_post += time.perf_counter() - t0
 
         image_id = img_info["id"]
@@ -291,10 +475,41 @@ def run_eval(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Evaluate end-to-end TRT engine (num_dets/det_*) on COCO val2017 (mAP)."
+        description=(
+            "Evaluate TensorRT YOLO engines on COCO val2017 (mAP). "
+            "Choose --output-format to match how the engine exposes detections."
+        )
     )
     parser.add_argument("--engine", type=str, required=True,
                         help="Path to TensorRT .engine file.")
+    parser.add_argument(
+        "--output-format",
+        type=str,
+        required=True,
+        choices=("onnx_trt", "efficient_nms", "ultralytics", "deepstream_yolo"),
+        help=(
+            "onnx_trt: four tensors num_dets/det_* (levipereira/ultralytics format=onnx_trt; "
+            "not synonymous with the EfficientNMS plugin alone). efficient_nms: alias for onnx_trt. "
+            "ultralytics: single [B,N,6] tensor (post-NMS). "
+            "deepstream_yolo: single [B,num_anchors,6] (DeepStream-Yolo xyxy layout, NMS in eval)."
+        ),
+    )
+    parser.add_argument(
+        "--output-tensor",
+        type=str,
+        default=None,
+        help=(
+            "Output tensor name for ultralytics / deepstream_yolo (e.g. output0 or output). "
+            "If omitted and the engine has one output, that tensor is used; "
+            "if multiple outputs exist, defaults to output0, output, or output1 when present."
+        ),
+    )
+    parser.add_argument(
+        "--iou-thres",
+        type=float,
+        default=0.45,
+        help="IoU threshold for per-class NMS (deepstream_yolo only).",
+    )
     parser.add_argument("--images", type=str, default="data/coco/val2017",
                         help="Path to COCO val2017 images directory.")
     parser.add_argument("--annotations", type=str,
@@ -324,6 +539,9 @@ def main(argv: list[str] | None = None) -> int:
         img_size=args.img_size,
         conf_thres=args.conf_thres,
         save_json=args.save_json,
+        output_format=normalize_eval_output_format(args.output_format),
+        output_tensor=args.output_tensor,
+        iou_thres=args.iou_thres,
         log=log,
     )
     return 0

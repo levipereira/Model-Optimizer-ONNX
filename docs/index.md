@@ -10,7 +10,7 @@
 |----------|-------------|
 | [Installation](installation.md) | `pip install`, Docker image, ORT CUDA 13 alignment |
 | [Workflow](workflow.md) | End-to-end pipeline: export → calib → quantize → engine → eval |
-| [CLI reference](cli-reference.md) | `model-opt-yolo` subcommands: `download-coco`, `calib`, `quantize`, `autotune`, `build-trt`, `eval-trt` |
+| [CLI reference](cli-reference.md) | `model-opt-yolo` subcommands; **`eval-trt`** needs **`--output-format`** (`onnx_trt`, `ultralytics`, or `deepstream_yolo`; `efficient_nms` aliases `onnx_trt`) |
 | [Artifacts & logging](artifacts-and-logging.md) | `artifacts/` layout, session naming, log files |
 | [Docker reference](docker-reference.md) | Base image, build args, environment variables |
 | [Troubleshooting](troubleshooting.md) | Common errors (CUDA/ORT, TRT, dynamic shapes, autotune) |

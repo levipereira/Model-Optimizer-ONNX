@@ -13,7 +13,7 @@ model-opt-yolo --help
 | `quantize` | Wrapper around `python -m modelopt.onnx.quantization` (PTQ) |
 | `autotune` | Wrapper around `python -m modelopt.onnx.quantization.autotune` (Q/DQ placement) |
 | `build-trt` | Run `trtexec` to build a `.engine` from ONNX (strongly-typed or benchmark mode) |
-| `eval-trt` | COCO mAP for end-to-end TRT engines (`num_dets`, `det_boxes`, `det_scores`, `det_classes`) |
+| `eval-trt` | COCO mAP on TensorRT engines — **`--output-format`** chooses `onnx_trt` (four tensors), Ultralytics single-tensor, or DeepStream-Yolo |
 
 ---
 
@@ -193,9 +193,9 @@ Runs **`trtexec`** to compile an ONNX file into a TensorRT **`.engine`**. Requir
 | `--batch` | Batch size for shapes (see modes below; default `1`) |
 | `--input-name` | Input tensor name for `--minShapes` / `--optShapes` / `--maxShapes` (default `images`) |
 | `--mode` | `strongly-typed` (default) or `benchmark` |
-| `--engine-out` | Output `.engine` path (default: same basename as ONNX, `.engine`) |
+| `--engine-out` | Output `.engine` path (default: `<artifacts>/trt_engine/<onnx-stem>.engine`) |
 | `--timing-cache` | Timing cache file (default: `<engine>.timing.cache`) |
-| `--log-file`, `-v` | Logging (default log under `<artifacts>/quantized/logs/build_trt_*.log`) |
+| `--log-file`, `-v` | Logging (default log under `<artifacts>/trt_engine/logs/build_trt_*.log`) |
 
 ### Modes
 
@@ -217,26 +217,49 @@ model-opt-yolo build-trt --onnx model.onnx --mode benchmark --batch 4 -- --works
 
 ## `model-opt-yolo eval-trt`
 
-Evaluates an **end-to-end** TensorRT engine on COCO (post-processed tensors only). Expected bindings:
+Runs **TensorRT** inference on **COCO val2017** and computes **bbox mAP** with **pycocotools**. Preprocessing uses the same **letterbox** + **÷255** convention as `calib` (aligned with common Ultralytics-style exports).
 
-| Role | Tensor | Shape |
-|------|--------|--------|
-| Input | `images` | `[B, 3, H, W]` |
-| Output | `num_dets` | `[B, 1]` |
-| Output | `det_boxes` | `[B, K, 4]` |
-| Output | `det_scores` | `[B, K]` |
-| Output | `det_classes` | `[B, K]` |
+You must set **`--output-format`** to match how your `.engine` exposes detections. The three modes correspond to common export stacks:
 
-**Dynamic batch:** `B` can be a dynamic dimension in the engine profile. This command runs **batch size 1** per image for mAP. Raw pre-NMS exports are not supported yet.
+| `--output-format` | References | TensorRT I/O (typical) |
+|-------------------|------------|-------------------------|
+| **`onnx_trt`** | **[levipereira/ultralytics](https://github.com/levipereira/ultralytics)** — `format=onnx_trt` / `onnx_trt.py`; four fixed detection outputs (see upstream README). The graph is **not** defined solely by “EfficientNMS”: e‑to‑e heads omit the TRT NMS plugin; YOLOv8-style paths may insert EfficientNMS_TRT — **`eval-trt`** always decodes the same four tensor names. | **Input:** `[B, 3, H, W]`. **Outputs:** `num_dets` `[B, 1]`, `det_boxes` `[B, K, 4]`, `det_scores` `[B, K]`, `det_classes` `[B, K]`. Boxes **xyxy** in **letterboxed** input pixel space. |
+| **`efficient_nms`** | *Alias* for **`onnx_trt`** (same behavior; legacy flag name). | Same as **`onnx_trt`**. |
+| **`ultralytics`** | **[ultralytics/ultralytics](https://github.com/ultralytics/ultralytics)** — export to ONNX/TensorRT with NMS in the graph. | **Single** output tensor (e.g. `output0`) `[B, N, 6]` (e.g. `N = 300`). Rows: **xyxy, score, class**; NMS already applied. |
+| **`deepstream_yolo`** | **[marcoslucianops/DeepStream-Yolo](https://github.com/marcoslucianops/DeepStream-Yolo)** — same layout as the **`nvdsparsebbox_Yolo`** custom parser (xyxy + score + class per anchor). | **Single** output (e.g. `output`) `[B, num_anchors, 6]` (e.g. **8400** anchors at 640×640). **Pre-clustering**; this tool applies **per-class NMS** (`--iou-thres`) then rescales boxes. |
+
+**How evaluation works (all modes):** (1) load image, letterbox to engine `H×W`, run inference with **batch 1**; (2) decode tensors according to `--output-format`; (3) map boxes from letterboxed coordinates to **original image** size; (4) map training **class indices** to **COCO category IDs** (80-class COCO mapping); (5) write predictions JSON and run **COCOeval**.
+
+**Dynamic batch:** `B` may be dynamic in the profile; this command always uses **`B = 1`** per image.
 
 | Argument | Description |
 |----------|-------------|
-| `--engine` | Path to `.engine` file |
-| `--images` | COCO images directory |
+| `--engine` | Path to `.engine` (**required**) |
+| `--output-format` | `onnx_trt` \| `efficient_nms` (alias) \| `ultralytics` \| `deepstream_yolo` (**required**) |
+| `--output-tensor` | Output tensor name for `ultralytics` / `deepstream_yolo` if the engine has **multiple** outputs and none of the default names (`output0`, `output`, `output1`) is correct |
+| `--iou-thres` | IoU threshold for **per-class NMS** in `deepstream_yolo` only (default `0.45`) |
+| `--images` | COCO images directory (default `data/coco/val2017`) |
 | `--annotations` | `instances_val2017.json` |
-| `--img-size` | Hint (may be overridden by engine) |
-| `--conf-thres` | Confidence threshold |
-| `--save-json` | Predictions JSON path |
+| `--img-size` | Hint (overridden by engine input shape if different) |
+| `--conf-thres` | Confidence threshold (default `0.001`) |
+| `--save-json` | Predictions JSON path (default under `artifacts/predictions/`) |
+| `--log-file`, `-v` | Logging |
+
+Examples:
+
+```bash
+# Four-tensor layout (levipereira/ultralytics onnx_trt)
+model-opt-yolo eval-trt --output-format onnx_trt --engine model.engine \
+  --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json
+
+# Ultralytics single tensor (explicit name if needed)
+model-opt-yolo eval-trt --output-format ultralytics --output-tensor output0 --engine model.engine \
+  --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json
+
+# DeepStream-Yolo layout (NMS in eval)
+model-opt-yolo eval-trt --output-format deepstream_yolo --output-tensor output --engine model.engine \
+  --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json
+```
 
 ---
 

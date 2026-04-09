@@ -22,7 +22,7 @@ flowchart LR
     D --> H
     H --> I[artifacts/quantized/*.quant.onnx]
     I --> J[model-opt-yolo build-trt]
-    J --> K[.engine]
+    J --> K[artifacts/trt_engine/*.engine]
     K --> L[model-opt-yolo eval-trt]
   end
 ```
@@ -35,7 +35,7 @@ flowchart LR
 | 4 | **Calibration** — build `calib.npy` from images (`model-opt-yolo calib`) |
 | 5 | **PTQ** — quantize using calibration data (`model-opt-yolo quantize`) |
 | 6 | **Engine** — `model-opt-yolo build-trt --onnx …` |
-| 7 | **Eval** — COCO mAP (`model-opt-yolo eval-trt`) |
+| 7 | **Eval** — COCO mAP (`model-opt-yolo eval-trt --output-format …`) — set **`--output-format`**: **`onnx_trt`** (four tensors; [levipereira/ultralytics](https://github.com/levipereira/ultralytics) `onnx_trt`), **`ultralytics`**, or **`deepstream_yolo`** (`efficient_nms` is an alias for `onnx_trt`) — see [CLI reference](cli-reference.md#model-opt-yolo-eval-trt) |
 
 ---
 

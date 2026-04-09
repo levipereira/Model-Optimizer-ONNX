@@ -71,7 +71,7 @@ docker run --gpus all --rm -it \
 |------|-----------|----------|
 | `$DATA_ROOT/models` | `/workspace/model-opt-yolo/models` | Input ONNX (you provide) |
 | `$DATA_ROOT/data` | `/workspace/model-opt-yolo/data` | e.g. COCO after `download-coco` |
-| `$DATA_ROOT/artifacts` | `/workspace/model-opt-yolo/artifacts` | Calibration, quantized ONNX, engines, logs ([Artifacts & logging](artifacts-and-logging.md)) |
+| `$DATA_ROOT/artifacts` | `/workspace/model-opt-yolo/artifacts` | Calibration, quantized ONNX, `trt_engine/` (`.engine`), logs ([Artifacts & logging](artifacts-and-logging.md)) |
 
 Use any host path for `DATA_ROOT` (second disk, project-specific folder, etc.).
 

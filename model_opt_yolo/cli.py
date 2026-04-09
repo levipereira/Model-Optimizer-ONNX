@@ -58,7 +58,7 @@ Commands:
   quantize    NVIDIA Model Optimizer ONNX PTQ (wrapper around modelopt.onnx.quantization)
   autotune    Q/DQ placement autotune (full CLI is in upstream Model Optimizer from Git)
   build-trt   TensorRT engine from ONNX (trtexec; strongly-typed or benchmark mode)
-  eval-trt    COCO mAP on an end-to-end TRT engine (num_dets / det_* bindings)
+  eval-trt    COCO mAP on TRT engines (EfficientNMS, Ultralytics, or DeepStream-Yolo output)
 
 Examples:
   model-opt-yolo download-coco --output-dir data/coco
@@ -67,7 +67,7 @@ Examples:
       --onnx_path models/yolo.onnx
   model-opt-yolo autotune --onnx_path models/yolo.onnx --quant_type int8 --schemes_per_region 30
   model-opt-yolo build-trt --onnx artifacts/quantized/model.int8.entropy.quant.onnx
-  model-opt-yolo eval-trt --engine artifacts/quantized/model.int8.entropy.quant.engine
+  model-opt-yolo eval-trt --output-format onnx_trt --engine artifacts/trt_engine/model.int8.entropy.quant.engine
 
 See also: model-opt-yolo <command> --help
 """,

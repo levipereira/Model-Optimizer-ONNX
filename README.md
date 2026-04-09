@@ -16,25 +16,23 @@
 
 ---
 
-## Scope: Ultralytics exports and `eval-trt`
+## Quantization workflow and `eval-trt`
 
-**Primary workflow:** this repo is built around **ONNX weights exported from Ultralytics** using **[levipereira/ultralytics](https://github.com/levipereira/ultralytics)** — a fork aimed at deployment-oriented export (ONNX / TensorRT–friendly graphs, `onnx_trt`, etc.).
+**Primary PTQ path:** ONNX exported from **[levipereira/ultralytics](https://github.com/levipereira/ultralytics)** — a deployment-oriented fork (TensorRT-friendly graphs, `onnx_trt`, etc.). You can also quantize ONNX from other sources as long as calibration preprocessing matches the model.
 
-**On the roadmap:** support for additional export paths, including pipelines aligned with **[DeepStream-Yolo](https://github.com/marcoslucianops/DeepStream-Yolo)** and ONNX export from the **official [ultralytics/ultralytics](https://github.com/ultralytics/ultralytics)** repository.
+### COCO mAP with `eval-trt` — three supported engine layouts
 
-**`eval-trt` — expected TensorRT I/O** (see [`docs/cli-reference.md`](docs/cli-reference.md)):
+`model-opt-yolo eval-trt` evaluates a **TensorRT `.engine`** on COCO by matching **how detections leave the network**. You must pass **`--output-format`** so the tool decodes tensors correctly. Full flags and shapes: [`docs/cli-reference.md`](docs/cli-reference.md).
 
-| Role | Tensor | Shape |
-|------|--------|--------|
-| Input | `images` | `[B, 3, H, W]` |
-| Output | `num_dets` | `[B, 1]` |
-| Output | `det_boxes` | `[B, K, 4]` — `x1, y1, x2, y2` in input space; `K` = max detections |
-| Output | `det_scores` | `[B, K]` |
-| Output | `det_classes` | `[B, K]` — class indices |
+| `--output-format` | Typical source | Idea |
+|-------------------|----------------|------|
+| **`onnx_trt`** | **[levipereira/ultralytics](https://github.com/levipereira/ultralytics)** — `format=onnx_trt` / `onnx_trt.py` (four fixed ONNX outputs; see that repo’s detection table). This path is **not** the same as naming the graph “EfficientNMS”: some heads are end-to-end in-network, others use EfficientNMS_TRT in the exporter — TensorRT still exposes `num_dets`, `det_boxes`, `det_scores`, `det_classes`. | Read the four tensors, take the first `num_dets` rows, filter by confidence, **undo letterbox**, COCO category mapping, **pycocotools** mAP. **`efficient_nms`** is accepted as an alias (legacy name). |
+| **`ultralytics`** | **[ultralytics/ultralytics](https://github.com/ultralytics/ultralytics)** TensorRT export with integrated NMS: a **single** output tensor (e.g. `output0`) shaped `[B, N, 6]` (e.g. `N = 300`). | Each row is **`x1, y1, x2, y2, score, class`** in **letterboxed input space** (NMS already applied in the graph). Filter by `--conf-thres`, letterbox inverse, COCO mapping, mAP. |
+| **`deepstream_yolo`** | **[marcoslucianops/DeepStream-Yolo](https://github.com/marcoslucianops/DeepStream-Yolo)** — engines aligned with the **DeepStream custom bbox parser** (`nvdsparsebbox_Yolo`): one output (often named `output`) `[B, num_anchors, 6]` (e.g. **8400** proposals at 640×640). | Same six fields as the parser (**xyxy + score + class**). In DeepStream, clustering/NMS runs in the pipeline; in **`eval-trt`** we apply **per-class NMS** in Python (`--iou-thres`), then letterbox inverse and mAP. |
 
-**Dynamic batch:** the batch dimension **`B`** may be dynamic in the TensorRT engine (optimization profile). The bundled COCO **`eval-trt`** tool runs **one image per inference** (`B = 1`).
+**Input tensor:** engines may use `images`, `input`, or another name; `eval-trt` binds the **first** input — ensure your build profile matches **NCHW** and the same letterbox normalization as calibration (**÷255**, RGB).
 
-Exports from **[levipereira/ultralytics](https://github.com/levipereira/ultralytics)** follow this layout. **Raw pre‑NMS** outputs (other tensor names or shapes) are **not** supported yet.
+**Batch:** **`B`** may be dynamic in the engine; evaluation uses **`B = 1`** per image.
 
 ---
 
@@ -62,7 +60,7 @@ flowchart LR
     D --> H
     H --> I[artifacts/quantized/*.quant.onnx]
     I --> J[model-opt-yolo build-trt]
-    J --> K[.engine]
+    J --> K[artifacts/trt_engine/*.engine]
     K --> L[model-opt-yolo eval-trt]
   end
 ```
@@ -170,8 +168,8 @@ Run these **inside the container** (or locally after `pip install -e .`):
 2. *(Optional)* `model-opt-yolo download-coco --output-dir data/coco`
 3. `model-opt-yolo calib --images_dir data/coco/val2017 --calibration_data_size 500 --img_size 640`
 4. `model-opt-yolo quantize --calibration_data artifacts/calibration/…npy --onnx_path models/your.onnx`
-5. `model-opt-yolo build-trt --onnx artifacts/quantized/your…quant.onnx --img-size 640`
-6. `model-opt-yolo eval-trt --engine …engine --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json`
+5. `model-opt-yolo build-trt --onnx artifacts/quantized/your…quant.onnx --img-size 640` (default engine: `artifacts/trt_engine/<same-stem>.engine`)
+6. `model-opt-yolo eval-trt --output-format onnx_trt --engine …engine --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json` (use `ultralytics` or `deepstream_yolo` if that matches your engine; see table above)
 
 CLI details: [docs/cli-reference.md](docs/cli-reference.md) · optional docs site: `pip install -e ".[docs]" && mkdocs serve` ([`mkdocs.yml`](mkdocs.yml))
 

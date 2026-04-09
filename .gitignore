@@ -208,6 +208,9 @@ artifacts/calibration/logs/*
 artifacts/quantized/*
 !artifacts/quantized/.gitkeep
 artifacts/quantized/logs/*
+artifacts/trt_engine/*
+!artifacts/trt_engine/.gitkeep
+artifacts/trt_engine/logs/*
 artifacts/predictions/*
 !artifacts/predictions/.gitkeep
 artifacts/predictions/logs/*

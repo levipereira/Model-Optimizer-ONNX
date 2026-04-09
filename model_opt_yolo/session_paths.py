@@ -135,12 +135,21 @@ def quantized_logs_dir() -> Path:
     return artifacts_root() / "quantized" / "logs"
 
 
+def trt_engine_dir() -> Path:
+    """Directory for TensorRT ``.engine`` files (default ``build-trt`` output)."""
+    return artifacts_root() / "trt_engine"
+
+
+def trt_engine_logs_dir() -> Path:
+    return artifacts_root() / "trt_engine" / "logs"
+
+
 def default_build_trt_session_log(*, onnx_stem: str, ts: str | None = None) -> Path:
     """Log file for ``model-opt-yolo build-trt`` when ``--log-file`` is omitted."""
     ts = ts or run_timestamp()
-    quantized_logs_dir().mkdir(parents=True, exist_ok=True)
+    trt_engine_logs_dir().mkdir(parents=True, exist_ok=True)
     name = "_".join(["build_trt", safe_component(onnx_stem), ts])
-    return quantized_logs_dir() / f"{name}.log"
+    return trt_engine_logs_dir() / f"{name}.log"
 
 
 def default_quantize_session_log(

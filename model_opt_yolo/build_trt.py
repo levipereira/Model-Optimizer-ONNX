@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from model_opt_yolo.logutil import add_logging_arguments, setup_logging
-from model_opt_yolo.session_paths import default_build_trt_session_log, run_timestamp
+from model_opt_yolo.session_paths import default_build_trt_session_log, run_timestamp, trt_engine_dir
 
 
 def _shape(batch: int, img_size: int) -> str:
@@ -137,7 +137,10 @@ def main(argv: list[str] | None = None) -> int:
         type=str,
         default=None,
         metavar="PATH",
-        help="Output .engine path (default: next to ONNX, same basename).",
+        help=(
+            "Output .engine path (default: <artifacts>/trt_engine/<onnx-stem>.engine; "
+            "artifacts root is cwd/artifacts or MODELOPT_ARTIFACTS_ROOT)."
+        ),
     )
     parser.add_argument(
         "--timing-cache",
@@ -170,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.engine_out:
         engine_path = Path(args.engine_out)
     else:
-        engine_path = onnx_path.with_suffix(".engine")
+        engine_path = trt_engine_dir() / f"{stem}.engine"
     if args.timing_cache:
         timing_cache = Path(args.timing_cache)
     else:

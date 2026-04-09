@@ -20,8 +20,10 @@ If the path does not exist, it is created when a command first needs it. Relativ
 |------|----------|
 | `artifacts/calibration/` | Calibration `.npy` tensors |
 | `artifacts/calibration/logs/` | `calib_prep_*.log` session logs |
-| `artifacts/quantized/` | Quantized ONNX and often `.engine` / timing cache from `model-opt-yolo build-trt` |
+| `artifacts/quantized/` | Quantized ONNX from `model-opt-yolo quantize` |
 | `artifacts/quantized/logs/` | Per-run `quantize_*.log` files |
+| `artifacts/trt_engine/` | TensorRT `.engine` files and `.engine.timing.cache` from `model-opt-yolo build-trt` (default output) |
+| `artifacts/trt_engine/logs/` | Per-run `build_trt_*.log` |
 | `artifacts/predictions/` | COCO prediction JSON from `eval-trt` |
 | `artifacts/predictions/logs/` | `eval_*.log` |
 | `artifacts/autotune/` | Autotune runs: `optimized_final.onnx`, `autotuner_state.yaml`, `region_models/`, `logs/` |
