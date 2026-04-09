@@ -38,31 +38,24 @@ The **PyTorch → ONNX** step defines tensor names, ranks, and post-processing s
 
 ## Pipeline
 
-**Optional** COCO data and Q/DQ autotune, then **calib → quantize → TensorRT engine → eval**.
+**Autotune** (Q/DQ placement search) is **optional**. **COCO images + annotations** and a **`calib.npy`** from **`calib`** are **required** for PTQ in the usual workflow (unless you supply an equivalent image set and build calibration yourself).
 
 ```mermaid
-flowchart LR
-  subgraph prep [Inputs]
-    DC[download-coco] -.->|optional| IM[Images + calib]
-    A[Export ONNX] --> B[models/*.onnx]
-    IM --> D[artifacts/calibration/*.npy]
-  end
-  subgraph optional [Optional]
-    B --> E[model-opt-yolo autotune]
-    E --> F[autotune/.../optimized_final.onnx]
-  end
-  subgraph core [Quantize and deploy]
-    G{Used autotune?}
-    F --> G
-    B --> G
-    G -->|yes| H[model-opt-yolo quantize]
-    G -->|no| H
-    D --> H
-    H --> I[artifacts/quantized/*.quant.onnx]
-    I --> J[model-opt-yolo build-trt]
-    J --> K[artifacts/trt_engine/*.engine]
-    K --> L[model-opt-yolo eval-trt]
-  end
+flowchart TD
+  A[PyTorch weights — .pt] --> B[Export to ONNX<br/>--dynamic · --simplify · opset ≥ 18]
+  B --> C[models/*.onnx]
+  C --> H[download-coco]
+  H --> I[model-opt-yolo calib]
+  I --> J[artifacts/calibration/*.npy]
+  J --> K{Autotune Q/DQ<br/>optional}
+  K -->|yes| E[model-opt-yolo autotune]
+  E --> F[artifacts/autotune/.../<br/>optimized_final.onnx]
+  F --> Q[model-opt-yolo quantize]
+  K -->|no| Q
+  Q --> L[artifacts/quantized/*.quant.onnx]
+  L --> M[model-opt-yolo build-trt]
+  M --> N[artifacts/trt_engine/*.engine]
+  N --> O[model-opt-yolo eval-trt<br/>COCO mAP]
 ```
 
 *More detail: [docs/workflow.md](docs/workflow.md)*
@@ -164,12 +157,13 @@ You still need a matching CUDA / TensorRT / ONNX Runtime stack on the host; the 
 
 Run these **inside the container** (or locally after `pip install -e .`):
 
-1. Put ONNX under `models/`.
-2. *(Optional)* `model-opt-yolo download-coco --output-dir data/coco`
+1. Put ONNX under `models/` (export from PyTorch with the flags you use in production).
+2. `model-opt-yolo download-coco --output-dir data/coco` — COCO val + annotations for **calib** and **eval**.
 3. `model-opt-yolo calib --images_dir data/coco/val2017 --calibration_data_size 500 --img_size 640`
-4. `model-opt-yolo quantize --calibration_data artifacts/calibration/…npy --onnx_path models/your.onnx`
-5. `model-opt-yolo build-trt --onnx artifacts/quantized/your…quant.onnx --img-size 640` (default engine: `artifacts/trt_engine/<same-stem>.engine`)
-6. `model-opt-yolo eval-trt --output-format onnx_trt --engine …engine --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json` (use `ultralytics` or `deepstream_yolo` if that matches your engine; see table above)
+4. *(Optional)* `model-opt-yolo autotune …` if you want Q/DQ placement search before PTQ.
+5. `model-opt-yolo quantize --calibration_data artifacts/calibration/…npy --onnx_path models/your.onnx` (use `artifacts/autotune/…/optimized_final.onnx` if you autotuned).
+6. `model-opt-yolo build-trt --onnx artifacts/quantized/your…quant.onnx --img-size 640` (default engine: `artifacts/trt_engine/<same-stem>.engine`)
+7. `model-opt-yolo eval-trt --output-format onnx_trt --engine …engine --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json` (use `ultralytics` or `deepstream_yolo` if that matches your engine; see table above)
 
 CLI details: [docs/cli-reference.md](docs/cli-reference.md) · optional docs site: `pip install -e ".[docs]" && mkdocs serve` ([`mkdocs.yml`](mkdocs.yml))
 

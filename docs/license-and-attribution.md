@@ -18,7 +18,7 @@ This toolkit is designed for use with:
 | [NVIDIA Model Optimizer](https://github.com/NVIDIA/Model-Optimizer) | Apache 2.0 | PTQ, optional ONNX autotune; install source may be PyPI and/or Git |
 | [TensorRT](https://developer.nvidia.com/tensorrt) | Proprietary (SDK) / see NVIDIA | Engine build and inference in NGC container |
 | [ONNX Runtime](https://onnxruntime.ai/) | MIT | Calibration and EP testing |
-| [COCO dataset](https://cocodataset.org/) | [CC BY 4.0](https://cocodataset.org/#termsofuse) | Optional calibration / evaluation images and annotations |
+| [COCO dataset](https://cocodataset.org/) | [CC BY 4.0](https://cocodataset.org/#termsofuse) | Typical calibration / evaluation images and annotations (e.g. val2017) |
 
 Upstream examples that influenced workflow: [Model Optimizer `examples/onnx_ptq`](https://github.com/NVIDIA/Model-Optimizer/tree/main/examples/onnx_ptq).
 
