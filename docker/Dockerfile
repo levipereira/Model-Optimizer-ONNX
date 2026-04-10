@@ -27,7 +27,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
     && pip install --no-cache-dir /workspace/model-opt-yolo \
     && pip install --no-cache-dir --upgrade --force-reinstall --pre \
         --index-url "${ORT_CUDA13_INDEX}" \
-        onnxruntime-gpu --no-deps
+        onnxruntime-gpu --no-deps \
+    && rm -rf /workspace/model-opt-yolo/*
 
 # Default: shell in project dir; bind-mount host models/data/artifacts under this path
 CMD ["/bin/bash"]

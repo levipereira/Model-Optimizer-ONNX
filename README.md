@@ -7,6 +7,7 @@
 [![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime%20GPU-CUDA%2013%20nightly-005CED?logo=onnx&logoColor=white)](https://onnxruntime.ai/)
 [![model-opt-yolo](https://img.shields.io/badge/model--opt--yolo-v0.1.0-3775A9?logo=pypi&logoColor=white)](pyproject.toml)
 [![Context7](https://img.shields.io/badge/Context7-Docs-blue?logo=data:image/svg%2bxml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSIxMCIgZmlsbD0id2hpdGUiLz48dGV4dCB4PSI3IiB5PSIxNyIgZm9udC1zaXplPSIxNCIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtd2VpZ2h0PSJib2xkIiBmaWxsPSIjMjU2M0VCIj5DPC90ZXh0Pjwvc3ZnPg==)](https://context7.com/levipereira/model-optimizer-yolo)
+[![mAP, latency & PTQ settings](https://img.shields.io/badge/mAP%2C%20latency%20%26%20PTQ%20settings%20(ref)-in%20progress-F59E0B)](https://github.com/levipereira/Model-Optimizer-YOLO/discussions)
 
 **ONNX post-training quantization (PTQ)** and **TensorRT** deployment helpers for **YOLO-style** detectors — built on [NVIDIA Model Optimizer](https://github.com/NVIDIA/Model-Optimizer), with COCO calibration and optional Q/DQ **autotune**.
 
@@ -17,8 +18,19 @@
 
 ---
 
+## Community
+
+**Do not open [Issues](https://github.com/levipereira/Model-Optimizer-YOLO/issues) for questions or for posting results and findings** (benchmarks, mAP, parameter setups, “what worked for my model,” and similar). Use **[GitHub Discussions](https://github.com/levipereira/Model-Optimizer-YOLO/discussions)** for that.
+
+Please read the pinned **[welcome announcement](https://github.com/levipereira/Model-Optimizer-YOLO/discussions/1)** — it describes how we use Discussions (questions, results, recipes per model, ideas for the project) and that **[Issues](https://github.com/levipereira/Model-Optimizer-YOLO/issues) are reserved for confirmed bugs** with clear, reproducible steps (versions, commands, minimal inputs).
+
+**Status (maintainer):** Published **reference results** are **not** posted yet — that work is **still in progress**. Those will include **COCO mAP** (accuracy) and **latency** (timing / throughput), plus **recommended PTQ settings** — quantization **precision** (e.g. int8, int4, fp8) and **calibration / quantizer methods** (e.g. entropy), as used in **`quantize`**, not the dataset / image options from the separate **`calib`** step. The Discussions category for results and recipes is open for the community; official tables and maintainer write-ups will be added when ready.
+
+---
+
 ## Table of Contents
 
+- [Community](#community)
 - [Pipeline](#pipeline)
 - [Quick Steps](#quick-steps)
 - [Supported Output Formats](#supported-output-formats)
