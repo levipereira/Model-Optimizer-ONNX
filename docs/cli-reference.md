@@ -12,7 +12,8 @@ model-opt-yolo --help
 | `calib` | Build a NumPy calibration tensor (`.npy`) from a folder of images |
 | `quantize` | Wrapper around `python -m modelopt.onnx.quantization` (PTQ) |
 | `autotune` | Wrapper around `python -m modelopt.onnx.quantization.autotune` (Q/DQ placement) |
-| `build-trt` | Run `trtexec` to build a `.engine` from ONNX (strongly-typed or benchmark mode) |
+| `build-trt` | Run `trtexec` to build a `.engine` from ONNX (`--mode`: `best`, `strongly-typed`, `fp16`, `fp16-int8`) |
+| `trt-bench` | `trtexec` throughput/latency on an **existing** `.engine` (`--loadEngine`; logs under `artifacts/trt_engine/logs/`) |
 | `eval-trt` | COCO mAP on TensorRT engines — **`--output-format`** chooses `onnx_trt` (four tensors), Ultralytics single-tensor, or DeepStream-Yolo |
 
 ---
@@ -192,25 +193,71 @@ Runs **`trtexec`** to compile an ONNX file into a TensorRT **`.engine`**. Requir
 | `--img-size` | Square `H=W` for shape profile (default `640`) |
 | `--batch` | Batch size for shapes (see modes below; default `1`) |
 | `--input-name` | Input tensor name for `--minShapes` / `--optShapes` / `--maxShapes` (default `images`) |
-| `--mode` | `strongly-typed` (default) or `benchmark` |
+| `--mode` | `best` (default), `strongly-typed`, `fp16`, or `fp16-int8` |
 | `--engine-out` | Output `.engine` path (default: `<artifacts>/trt_engine/<onnx-stem>.engine`) |
 | `--timing-cache` | Timing cache file (default: `<engine>.timing.cache`) |
 | `--log-file`, `-v` | Logging (default log under `<artifacts>/trt_engine/logs/build_trt_*.log`) |
 
 ### Modes
 
-| `--mode` | Behavior |
-|----------|----------|
-| **`strongly-typed`** | For Q/DQ ONNX from Model Optimizer: `--stronglyTyped`, and `min/opt/max` shapes all use **batch × 3 × H × W** (default for PTQ exports). |
-| **`benchmark`** | For throughput / latency measurement: adds **`--fp16`** and **`--int8`**, **`--warmUp`**, **`--duration`**, **`--useCudaGraph`**, **`--useSpinWait`**, **`--noDataTransfers`**. **`minShapes`** use batch **1**; **`opt`/`max`** use **`--batch`**. |
+All modes share the same dynamic-shape profile (**`minShapes` / `optShapes` / `maxShapes`**: **batch × 3 × H × W**). Throughput on an already-built plan is measured with **`trt-bench`**, not `build-trt`.
+
+**`best`** (default) — `trtexec` **`--best`**
+
+Lets TensorRT consider multiple precisions and tactics to minimize latency. This is usually a strong default when you care about **speed** and can outperform a strict graph import because the builder has more freedom to place FP16 (and other) kernels where they help.
+
+**`strongly-typed`** — `trtexec` **`--stronglyTyped`**
+
+Builds a **strongly typed** network: TensorRT follows the ONNX graph’s tensor types and Q/DQ layout **without** the same cross-layer precision exploration as **`--best`**. Think of it as honoring the exported graph “as typed,” not as “apply every global optimization.”
+
+That strictness is **not YOLO-specific**, but **YOLO-style detectors** often suffer here: many ops must remain **FP32** in the exported graph while you still want TensorRT to run hot paths in **FP16** elsewhere. **`best`** typically handles that tradeoff better. **`--mode strongly-typed` is not recommended as the default for YOLO** when **throughput** is the goal—it can leave performance on the table. Use it when you **intentionally** need maximum fidelity to the ONNX types (debugging, compliance, or graphs where strong typing is required).
+
+**`fp16`** — `trtexec` **`--fp16`**
+
+For **FP32 / non-quantized** ONNX (no Q/DQ): enables FP16 where the builder can use it. Not the right knob for interpreting a full INT8 Q/DQ graph—that path is different.
+
+**`fp16-int8`** — `trtexec` **`--fp16`** + **`--int8`**
+
+Classic TensorRT combination for **FP** ONNX when you want both FP16 and INT8 kernels in the search space. For **YOLO-style** models from a **non-quantized** checkpoint, this is often a **good practical choice** (with TensorRT’s INT8 requirements, calibration, and operator support as documented by NVIDIA). It is **not** a drop-in substitute for Model Optimizer PTQ artifacts; those are a separate pipeline.
+
+| `--mode` | Flags | Summary |
+|----------|-------|---------|
+| **`best`** (default) | **`--best`** | Broad tactic / precision search; good default when optimizing latency. |
+| **`strongly-typed`** | **`--stronglyTyped`** | Strict ONNX types; avoid as default for YOLO if throughput matters. |
+| **`fp16`** | **`--fp16`** | Non-quantized ONNX → FP16 where applicable. |
+| **`fp16-int8`** | **`--fp16`** **`--int8`** | FP + INT8 search space; often recommended for YOLO from FP ONNX (see TensorRT docs). |
 
 ### Pass-through (`--` …)
 
 Arguments after `--` are appended to the **`trtexec`** command (after the built-in flags). Use this to **add** flags or **override** behavior (later tokens win depending on `trtexec`).
 
 ```bash
-model-opt-yolo build-trt --onnx model.quant.onnx --img-size 640 --batch 1 -- --verbose
-model-opt-yolo build-trt --onnx model.onnx --mode benchmark --batch 4 -- --workspace=8192
+model-opt-yolo build-trt --onnx model.fp.onnx --img-size 640 --batch 1 -- --verbose
+model-opt-yolo build-trt --onnx model.onnx --mode best --img-size 640
+model-opt-yolo build-trt --onnx model.onnx --mode fp16-int8 --img-size 640
+```
+
+---
+
+## `model-opt-yolo trt-bench`
+
+Runs **`trtexec`** with **`--loadEngine`** on an **existing** TensorRT **`.engine`** (no ONNX rebuild). Shapes come from the serialized plan — there is no **`--batch`** / **`--img-size`** here. Follows NVIDIA’s [TensorRT performance best practices](https://docs.nvidia.com/deeplearning/tensorrt/latest/performance/best-practices.html) (warmup, iterations, duration; plus CUDA graph, spin wait, no transfers for isolated GPU timing).
+
+**Common arguments**
+
+| Argument | Description |
+|----------|-------------|
+| `--engine` | Input **`.engine`** path (**required**) |
+| `--warm-up` | `trtexec --warmUp` in **milliseconds** (default **500**) |
+| `--iterations` | `trtexec --iterations`: minimum inference iterations (default **100**) |
+| `--duration` | `trtexec --duration` in **seconds** (default **60**) |
+| `--log-file`, `-v` | Logging (default: `<artifacts>/trt_engine/logs/trt_bench_<engine-stem>_<timestamp>.log`) |
+
+Built-in `trtexec` flags include **`--useCudaGraph`**, **`--useSpinWait`**, **`--noDataTransfers`**.
+
+```bash
+model-opt-yolo trt-bench --engine artifacts/trt_engine/model.int8.entropy.quant.engine
+model-opt-yolo trt-bench --engine model.engine --warm-up 500 --iterations 100 --duration 60 -- --avgRuns=20
 ```
 
 ---

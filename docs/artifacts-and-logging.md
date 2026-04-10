@@ -23,7 +23,7 @@ If the path does not exist, it is created when a command first needs it. Relativ
 | `artifacts/quantized/` | Quantized ONNX from `model-opt-yolo quantize` |
 | `artifacts/quantized/logs/` | Per-run `quantize_*.log` files |
 | `artifacts/trt_engine/` | TensorRT `.engine` files and `.engine.timing.cache` from `model-opt-yolo build-trt` (default output) |
-| `artifacts/trt_engine/logs/` | Per-run `build_trt_*.log` |
+| `artifacts/trt_engine/logs/` | Per-run `build_trt_*.log` and `trt_bench_*.log` |
 | `artifacts/predictions/` | COCO prediction JSON from `eval-trt` |
 | `artifacts/predictions/logs/` | `eval_*.log` |
 | `artifacts/autotune/` | Autotune runs: `optimized_final.onnx`, `autotuner_state.yaml`, `region_models/`, `logs/` |
@@ -39,6 +39,7 @@ Examples:
 - Calibration output: `calib_<dir>_sz<640>_n<500>_<timestamp>.npy`
 - Autotune run folder: `autotune_<model>_qt<int8>_spr<N>_img<640>_<timestamp>/`
 - Quantize log: `quantize_<stem>_qt<int8>_<method>_<timestamp>.log`
+- TensorRT bench log: `trt_bench_<engine-stem>_<timestamp>.log` (`trt-bench`)
 
 ---
 

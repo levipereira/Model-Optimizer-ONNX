@@ -14,7 +14,7 @@
 | | |
 |--|--|
 | **CLI** | `model-opt-yolo` |
-| **Docs** | [`docs/index.md`](docs/index.md) |
+| **Docs** | [`docs/README.md`](docs/README.md) |
 
 ---
 
@@ -78,7 +78,7 @@ Run these **inside the container** (or locally after `pip install -e .`):
 3. `model-opt-yolo calib --images_dir data/coco/val2017 --calibration_data_size 500 --img_size 640`
 4. *(Optional)* `model-opt-yolo autotune …` if you want Q/DQ placement search before PTQ.
 5. `model-opt-yolo quantize --calibration_data artifacts/calibration/…npy --onnx_path models/your.onnx` (use `artifacts/autotune/…/optimized_final.onnx` if you autotuned).
-6. `model-opt-yolo build-trt --onnx artifacts/quantized/your…quant.onnx --img-size 640` (default engine: `artifacts/trt_engine/<same-stem>.engine`)
+6. `model-opt-yolo build-trt --onnx artifacts/quantized/your…quant.onnx --img-size 640` (default `--mode` is **`best`**; for throughput on YOLO, **`strongly-typed`** is usually *not* the first choice — see [CLI reference — build-trt modes](docs/cli-reference.md#model-opt-yolo-build-trt)) — engine: `artifacts/trt_engine/<same-stem>.engine`
 7. `model-opt-yolo eval-trt --output-format onnx_trt --engine …engine --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json` (use `ultralytics` or `deepstream_yolo` if that matches your engine; see table below)
 
 CLI details: [docs/cli-reference.md](docs/cli-reference.md) · optional docs site: `pip install -e ".[docs]" && mkdocs serve` ([`mkdocs.yml`](mkdocs.yml))

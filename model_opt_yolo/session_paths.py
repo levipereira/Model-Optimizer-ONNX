@@ -152,6 +152,14 @@ def default_build_trt_session_log(*, onnx_stem: str, ts: str | None = None) -> P
     return trt_engine_logs_dir() / f"{name}.log"
 
 
+def default_trt_bench_session_log(*, engine_stem: str, ts: str | None = None) -> Path:
+    """Log file for ``model-opt-yolo trt-bench`` when ``--log-file`` is omitted."""
+    ts = ts or run_timestamp()
+    trt_engine_logs_dir().mkdir(parents=True, exist_ok=True)
+    name = "_".join(["trt_bench", safe_component(engine_stem), ts])
+    return trt_engine_logs_dir() / f"{name}.log"
+
+
 def default_quantize_session_log(
     *,
     onnx_stem: str,

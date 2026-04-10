@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Run ``trtexec`` to build a TensorRT engine from ONNX (quantized or FP)."""
+"""Run ``trtexec`` to build a TensorRT engine from ONNX (quantized or FP).
+
+``--mode``: ``best`` (default), ``strongly-typed``, ``fp16``, or ``fp16-int8``. See
+project docs for YOLO: ``strongly-typed`` follows ONNX types strictly and is often not
+the fastest choice for throughput. Benchmark a built ``.engine`` with ``trt-bench``.
+"""
 
 from __future__ import annotations
 
@@ -27,8 +32,6 @@ def build_trtexec_argv(
     img_size: int,
     batch: int,
     mode: str,
-    warm_up: int,
-    duration: int,
     extra: list[str],
 ) -> list[str]:
     """Base ``trtexec`` argument list; *extra* is appended last for overrides."""
@@ -36,37 +39,29 @@ def build_trtexec_argv(
     eng_s = str(engine_path.resolve())
     cache_s = str(timing_cache.resolve())
 
+    shp = _shape(batch, img_size)
+    head = [
+        "--onnx=" + onnx_s,
+        "--saveEngine=" + eng_s,
+    ]
     if mode == "strongly-typed":
-        shp = _shape(batch, img_size)
-        base = [
-            "--onnx=" + onnx_s,
-            "--saveEngine=" + eng_s,
-            "--stronglyTyped",
-            f"--minShapes={input_name}:{shp}",
-            f"--optShapes={input_name}:{shp}",
-            f"--maxShapes={input_name}:{shp}",
-            "--timingCacheFile=" + cache_s,
-        ]
-    elif mode == "benchmark":
-        min_shp = _shape(1, img_size)
-        bm_shp = _shape(batch, img_size)
-        base = [
-            "--onnx=" + onnx_s,
-            "--fp16",
-            "--int8",
-            "--saveEngine=" + eng_s,
-            "--timingCacheFile=" + cache_s,
-            f"--warmUp={warm_up}",
-            f"--duration={duration}",
-            "--useCudaGraph",
-            "--useSpinWait",
-            "--noDataTransfers",
-            f"--minShapes={input_name}:{min_shp}",
-            f"--optShapes={input_name}:{bm_shp}",
-            f"--maxShapes={input_name}:{bm_shp}",
-        ]
+        precision = ["--stronglyTyped"]
+    elif mode == "best":
+        precision = ["--best"]
+    elif mode == "fp16":
+        precision = ["--fp16"]
+    elif mode == "fp16-int8":
+        precision = ["--fp16", "--int8"]
     else:
         raise ValueError(f"unknown mode: {mode!r}")
+
+    tail = [
+        f"--minShapes={input_name}:{shp}",
+        f"--optShapes={input_name}:{shp}",
+        f"--maxShapes={input_name}:{shp}",
+        "--timingCacheFile=" + cache_s,
+    ]
+    base = [*head, *precision, *tail]
 
     return ["trtexec", *base, *extra]
 
@@ -75,8 +70,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Build a TensorRT .engine from ONNX via trtexec. "
-            "Default mode uses --stronglyTyped for Q/DQ models from Model Optimizer; "
-            "benchmark mode adds --fp16/--int8 and latency flags for throughput measurement."
+            "Modes: best (default), strongly-typed, fp16, fp16-int8 — see docs for YOLO vs strongly-typed. "
+            "Benchmark: model-opt-yolo trt-bench --engine PATH. "
+            "Append extra trtexec args after -- for overrides."
         )
     )
     parser.add_argument(
@@ -98,8 +94,7 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=1,
         metavar="B",
-        help="Batch dimension for opt/max shapes (strongly-typed: min/opt/max all use B). "
-        "For benchmark mode, min batch is fixed to 1.",
+        help="Batch dimension for min/opt/max shapes (all modes use the same profile).",
     )
     parser.add_argument(
         "--input-name",
@@ -111,26 +106,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--mode",
         type=str,
-        choices=("strongly-typed", "benchmark"),
-        default="strongly-typed",
+        choices=("best", "strongly-typed", "fp16", "fp16-int8"),
+        default="best",
         help=(
-            "strongly-typed: --stronglyTyped + same min/opt/max shape (default, matches Q/DQ ONNX). "
-            "benchmark: --fp16 --int8 + warmup/duration/spin/CUDA graph + min batch 1."
+            "best (default): --best. strongly-typed: --stronglyTyped (strict ONNX types; often not fastest for YOLO). "
+            "fp16: --fp16 (typ. non-quantized ONNX). fp16-int8: --fp16 --int8. Same min/opt/max shape. "
+            "Trailing args after -- are forwarded to trtexec."
         ),
-    )
-    parser.add_argument(
-        "--warm-up",
-        type=int,
-        default=500,
-        metavar="N",
-        help="[benchmark] trtexec --warmUp (default: 500).",
-    )
-    parser.add_argument(
-        "--duration",
-        type=int,
-        default=10,
-        metavar="SEC",
-        help="[benchmark] trtexec --duration in seconds (default: 10).",
     )
     parser.add_argument(
         "--engine-out",
@@ -201,8 +183,6 @@ def main(argv: list[str] | None = None) -> int:
         img_size=args.img_size,
         batch=args.batch,
         mode=args.mode,
-        warm_up=args.warm_up,
-        duration=args.duration,
         extra=extra,
     )
     # Use resolved trtexec path

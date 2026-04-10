@@ -38,6 +38,10 @@ def main(argv: list[str] | None = None) -> int:
         from model_opt_yolo.build_trt import main as run
 
         return run(rest)
+    if cmd in ("trt-bench", "trt_bench"):
+        from model_opt_yolo.bench_trt import main as run
+
+        return run(rest)
 
     print(f"Unknown command: {cmd!r}", file=sys.stderr)
     _print_usage(to_stdout=False)
@@ -57,7 +61,8 @@ Commands:
   calib       Build calibration .npy from image folders
   quantize    NVIDIA Model Optimizer ONNX PTQ (wrapper around modelopt.onnx.quantization)
   autotune    Q/DQ placement autotune (full CLI is in upstream Model Optimizer from Git)
-  build-trt   TensorRT engine from ONNX (trtexec; strongly-typed or benchmark mode)
+  build-trt   TensorRT engine from ONNX (--mode best|strongly-typed|fp16|fp16-int8)
+  trt-bench   trtexec throughput/latency on an existing .engine (--loadEngine; no rebuild)
   eval-trt    COCO mAP on TRT engines (EfficientNMS, Ultralytics, or DeepStream-Yolo output)
 
 Examples:
@@ -67,6 +72,7 @@ Examples:
       --onnx_path models/yolo.onnx
   model-opt-yolo autotune --onnx_path models/yolo.onnx --quant_type int8 --schemes_per_region 30
   model-opt-yolo build-trt --onnx artifacts/quantized/model.int8.entropy.quant.onnx
+  model-opt-yolo trt-bench --engine artifacts/trt_engine/model.int8.entropy.quant.engine
   model-opt-yolo eval-trt --output-format onnx_trt --engine artifacts/trt_engine/model.int8.entropy.quant.engine
 
 See also: model-opt-yolo <command> --help

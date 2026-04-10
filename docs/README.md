@@ -23,7 +23,7 @@
 | Component | Role in this project |
 |-----------|----------------------|
 | **NVIDIA Model Optimizer** (`nvidia-modelopt[onnx]`) | PTQ API and optional ONNX Q/DQ autotune |
-| **TensorRT** (NGC container `26.02-py3`) | Engine build (`trtexec`), autotune benchmarking |
+| **TensorRT** (NGC container `26.02-py3`) | Engine build (`build-trt`), plan benchmark (`trt-bench`), autotune benchmarking |
 | **ONNX Runtime GPU** (CUDA 13 nightly when in TRT 26 image) | Calibration execution providers |
 | **PyCUDA** / **TensorRT Python** | `eval-trt` engine inference |
 | **pycocotools** | COCO mAP evaluation |

@@ -29,7 +29,7 @@ flowchart TD
 | 3 | **Calibration** — build `calib.npy` from images (`model-opt-yolo calib`) |
 | 4 | *(Optional)* **Autotune** — Q/DQ placement for TensorRT (`model-opt-yolo autotune`) |
 | 5 | **PTQ** — quantize using calibration data (`model-opt-yolo quantize`; ONNX is `models/*.onnx` or `optimized_final.onnx` if you autotuned) |
-| 6 | **Engine** — `model-opt-yolo build-trt --onnx …` |
+| 6 | **Engine** — `model-opt-yolo build-trt --onnx …` (default `--mode best`; see [CLI reference](cli-reference.md#model-opt-yolo-build-trt) for YOLO vs `strongly-typed`) |
 | 7 | **Eval** — COCO mAP (`model-opt-yolo eval-trt --output-format …`) — set **`--output-format`**: **`onnx_trt`** (four tensors; [levipereira/ultralytics](https://github.com/levipereira/ultralytics) `onnx_trt`), **`ultralytics`**, or **`deepstream_yolo`** (`efficient_nms` is an alias for `onnx_trt`) — see [CLI reference](cli-reference.md#model-opt-yolo-eval-trt) |
 
 ---
