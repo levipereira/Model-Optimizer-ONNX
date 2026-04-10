@@ -18,16 +18,6 @@
 
 ---
 
-## Community
-
-**Do not open [Issues](https://github.com/levipereira/Model-Optimizer-YOLO/issues) for questions or for posting results and findings** (benchmarks, mAP, parameter setups, “what worked for my model,” and similar). Use **[GitHub Discussions](https://github.com/levipereira/Model-Optimizer-YOLO/discussions)** for that.
-
-Please read the pinned **[welcome announcement](https://github.com/levipereira/Model-Optimizer-YOLO/discussions/1)** — it describes how we use Discussions (questions, results, recipes per model, ideas for the project) and that **[Issues](https://github.com/levipereira/Model-Optimizer-YOLO/issues) are reserved for confirmed bugs** with clear, reproducible steps (versions, commands, minimal inputs).
-
-**Status (maintainer):** Published **reference results** are **not** posted yet — that work is **still in progress**. Those will include **COCO mAP** (accuracy) and **latency** (timing / throughput), plus **recommended PTQ settings** — quantization **precision** (e.g. int8, int4, fp8) and **calibration / quantizer methods** (e.g. entropy), as used in **`quantize`**, not the dataset / image options from the separate **`calib`** step. The Discussions category for results and recipes is open for the community; official tables and maintainer write-ups will be added when ready.
-
----
-
 ## Table of Contents
 
 - [Community](#community)
@@ -40,6 +30,16 @@ Please read the pinned **[welcome announcement](https://github.com/levipereira/M
   - [Run with Docker (default)](#run-with-docker-default)
   - [Local Installation (optional)](#local-installation-optional)
 - [License](#license)
+
+---
+
+## Community
+
+**Do not open [Issues](https://github.com/levipereira/Model-Optimizer-YOLO/issues) for questions or for posting results and findings** (benchmarks, mAP, parameter setups, “what worked for my model,” and similar). Use **[GitHub Discussions](https://github.com/levipereira/Model-Optimizer-YOLO/discussions)** for that.
+
+Please read the pinned **[welcome announcement](https://github.com/levipereira/Model-Optimizer-YOLO/discussions/1)** — it describes how we use Discussions (questions, results, recipes per model, ideas for the project) and that **[Issues](https://github.com/levipereira/Model-Optimizer-YOLO/issues) are reserved for confirmed bugs** with clear, reproducible steps (versions, commands, minimal inputs).
+
+**Status (maintainer):** Published **reference results** are **not** posted yet — that work is **still in progress**. Those will include **COCO mAP** (accuracy) and **latency** (timing / throughput), plus **recommended PTQ settings** — quantization **precision** (e.g. int8, int4, fp8) and **calibration / quantizer methods** (e.g. entropy), as used in **`quantize`**. The Discussions category for results and recipes is open for the community; official tables and maintainer write-ups will be added when ready.
 
 ---
 
