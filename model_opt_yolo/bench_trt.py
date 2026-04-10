@@ -16,6 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from model_opt_yolo.io_checks import validate_readable_file
 from model_opt_yolo.logutil import add_logging_arguments, setup_logging
 from model_opt_yolo.session_paths import default_trt_bench_session_log, run_timestamp
 
@@ -97,10 +98,11 @@ def main(argv: list[str] | None = None) -> int:
             pt = pt[1:]
         extra.extend(pt)
 
-    engine_path = Path(args.engine)
-    if not engine_path.is_file():
-        print(f"Error: engine file not found: {engine_path}", file=sys.stderr)
+    err = validate_readable_file(args.engine, label="TensorRT engine")
+    if err:
+        print(err, file=sys.stderr)
         return 1
+    engine_path = Path(args.engine).expanduser().resolve()
 
     stem = engine_path.stem
     ts = run_timestamp()
@@ -137,9 +139,25 @@ def main(argv: list[str] | None = None) -> int:
     )
     log.info("Running: %s", " ".join(argv_exec))
 
-    rc = subprocess.call(argv_exec)
+    # Stream trtexec to the console and capture full output for the session log file.
+    proc = subprocess.Popen(
+        argv_exec,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    chunks: list[str] = []
+    if proc.stdout is not None:
+        for line in proc.stdout:
+            sys.stderr.write(line)
+            chunks.append(line)
+    rc = proc.wait()
+    trt_out = "".join(chunks).rstrip()
+    if trt_out:
+        log.info("--- trtexec output ---\n%s", trt_out)
     if rc == 0:
-        log.info("trtexec finished successfully (see stdout above for throughput / latency).")
+        log.info("trtexec finished successfully.")
     else:
         log.error("trtexec exited with code %d", rc)
     return rc

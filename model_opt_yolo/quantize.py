@@ -11,6 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from model_opt_yolo.io_checks import validate_numpy_array_file, validate_readable_file
 from model_opt_yolo.logutil import add_logging_arguments, setup_logging
 from model_opt_yolo.session_paths import (
     artifacts_root,
@@ -39,6 +40,8 @@ def run_quantize(
     high_precision_dtype: str,
     extra_args: list[str],
     log: logging.Logger,
+    *,
+    autotune: str | None = None,
 ) -> int:
     cmd = [
         sys.executable,
@@ -50,8 +53,10 @@ def run_quantize(
         f"--calibration_method={calibration_method}",
         f"--output_path={output_path}",
         f"--high_precision_dtype={high_precision_dtype}",
-        *extra_args,
     ]
+    if autotune:
+        cmd.append(f"--autotune={autotune}")
+    cmd.extend(extra_args)
     log.info("Running: %s", " ".join(cmd))
     return subprocess.call(cmd)
 
@@ -101,6 +106,19 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--autotune",
+        type=str,
+        default=None,
+        choices=("quick", "default", "extensive"),
+        metavar="PRESET",
+        help=(
+            "Enable integrated Q/DQ autotune inside the PTQ step. "
+            "Presets: quick, default, extensive. The autotuner runs "
+            "after calibration/Q-DQ insertion and selectively removes "
+            "Q/DQ nodes that hurt TensorRT latency. Requires GPU + TensorRT."
+        ),
+    )
+    parser.add_argument(
         "--suffix",
         type=str,
         default=".quant.onnx",
@@ -136,6 +154,16 @@ def main(argv: list[str] | None = None) -> int:
         paths = sorted(glob.glob(args.onnx_glob))
         if not paths:
             print(f"No files matched: {args.onnx_glob}", file=sys.stderr)
+            return 1
+
+    err = validate_numpy_array_file(args.calibration_data, label="Calibration data")
+    if err:
+        print(err, file=sys.stderr)
+        return 1
+    for p in paths:
+        err = validate_readable_file(p, label="ONNX model")
+        if err:
+            print(err, file=sys.stderr)
             return 1
 
     ts = run_timestamp()
@@ -181,6 +209,7 @@ def main(argv: list[str] | None = None) -> int:
             high_precision_dtype=args.high_precision_dtype,
             extra_args=extra,
             log=log,
+            autotune=args.autotune,
         )
         if rc != 0:
             log.error("Failed: %s (exit %d)", p, rc)

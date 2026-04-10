@@ -26,10 +26,6 @@ def main(argv: list[str] | None = None) -> int:
         from model_opt_yolo.quantize import main as run
 
         return run(rest)
-    if cmd == "autotune":
-        from model_opt_yolo.autotune import main as run
-
-        return run(rest)
     if cmd in ("eval-trt", "eval_trt"):
         from model_opt_yolo.eval_trt import main as run
 
@@ -40,6 +36,14 @@ def main(argv: list[str] | None = None) -> int:
         return run(rest)
     if cmd in ("trt-bench", "trt_bench"):
         from model_opt_yolo.bench_trt import main as run
+
+        return run(rest)
+    if cmd in ("report-runs", "report_runs"):
+        from model_opt_yolo.report_runs import main as run
+
+        return run(rest)
+    if cmd in ("pipeline-e2e", "pipeline_e2e", "e2e"):
+        from model_opt_yolo.pipeline_e2e import main as run
 
         return run(rest)
 
@@ -59,18 +63,20 @@ Usage:
 Commands:
   download-coco  Download COCO val2017 + annotations into data/coco (or --output-dir)
   calib       Build calibration .npy from image folders
-  quantize    NVIDIA Model Optimizer ONNX PTQ (wrapper around modelopt.onnx.quantization)
-  autotune    Q/DQ placement autotune (full CLI is in upstream Model Optimizer from Git)
-  build-trt   TensorRT engine from ONNX (--mode best|strongly-typed|fp16|fp16-int8)
+  quantize    NVIDIA Model Optimizer ONNX PTQ (--autotune quick|default|extensive for Q/DQ tuning)
+  build-trt   TensorRT engine from ONNX (--mode strongly-typed|best|fp16|fp16-int8)
   trt-bench   trtexec throughput/latency on an existing .engine (--loadEngine; no rebuild)
   eval-trt    COCO mAP on TRT engines (EfficientNMS, Ultralytics, or DeepStream-Yolo output)
+  report-runs Scan trt_bench / eval logs → Markdown report (tables + Mermaid charts)
+  pipeline-e2e  End-to-end: calib → quantize [+autotune] → build-trt → eval-trt → trt-bench → report
 
 Examples:
   model-opt-yolo download-coco --output-dir data/coco
   model-opt-yolo calib --images_dir data/coco/val2017 --calibration_data_size 500 --img_size 640
-  model-opt-yolo quantize --calibration_data artifacts/calibration/calib_val2017_sz640_n500_....npy \\
+  model-opt-yolo quantize --calibration_data artifacts/calibration/calib_....npy \\
       --onnx_path models/yolo.onnx
-  model-opt-yolo autotune --onnx_path models/yolo.onnx --quant_type int8 --schemes_per_region 30
+  model-opt-yolo quantize --calibration_data artifacts/calibration/calib_....npy \\
+      --onnx_path models/yolo.onnx --autotune default
   model-opt-yolo build-trt --onnx artifacts/quantized/model.int8.entropy.quant.onnx
   model-opt-yolo trt-bench --engine artifacts/trt_engine/model.int8.entropy.quant.engine
   model-opt-yolo eval-trt --output-format onnx_trt --engine artifacts/trt_engine/model.int8.entropy.quant.engine

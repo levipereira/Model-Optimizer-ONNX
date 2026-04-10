@@ -26,7 +26,8 @@ If the path does not exist, it is created when a command first needs it. Relativ
 | `artifacts/trt_engine/logs/` | Per-run `build_trt_*.log` and `trt_bench_*.log` |
 | `artifacts/predictions/` | COCO prediction JSON from `eval-trt` |
 | `artifacts/predictions/logs/` | `eval_*.log` |
-| `artifacts/autotune/` | Autotune runs: `optimized_final.onnx`, `autotuner_state.yaml`, `region_models/`, `logs/` |
+| `artifacts/autotune/` | Autotune artifacts (when using `quantize --autotune`) |
+| `artifacts/pipeline_e2e/sessions/<session_id>/` | `pipeline-e2e`: `session.json`, `pipeline.log`, session-scoped logs (`trt_engine/logs/`, `predictions/logs/`, `quantized/logs/`) and `e2e_report.md` — `report-runs` reads only these dirs so older global logs are not merged |
 
 ---
 
@@ -37,7 +38,6 @@ The Python module `model_opt_yolo.session_paths` generates **unique** directory 
 Examples:
 
 - Calibration output: `calib_<dir>_sz<640>_n<500>_<timestamp>.npy`
-- Autotune run folder: `autotune_<model>_qt<int8>_spr<N>_img<640>_<timestamp>/`
 - Quantize log: `quantize_<stem>_qt<int8>_<method>_<timestamp>.log`
 - TensorRT bench log: `trt_bench_<engine-stem>_<timestamp>.log` (`trt-bench`)
 

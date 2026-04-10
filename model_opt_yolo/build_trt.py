@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Run ``trtexec`` to build a TensorRT engine from ONNX (quantized or FP).
 
-``--mode``: ``best`` (default), ``strongly-typed``, ``fp16``, or ``fp16-int8``. See
-project docs for YOLO: ``strongly-typed`` follows ONNX types strictly and is often not
-the fastest choice for throughput. Benchmark a built ``.engine`` with ``trt-bench``.
+``--mode``: ``strongly-typed`` (default), ``best``, ``fp16``, or ``fp16-int8``.
+For **quantized / PTQ** ONNX, ``strongly-typed`` (``--stronglyTyped``) matches Q/DQ
+types; use ``best`` or ``fp16`` mainly for non-quantized exports. Benchmark with ``trt-bench``.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from model_opt_yolo.io_checks import validate_readable_file
 from model_opt_yolo.logutil import add_logging_arguments, setup_logging
 from model_opt_yolo.session_paths import default_build_trt_session_log, run_timestamp, trt_engine_dir
 
@@ -70,7 +71,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Build a TensorRT .engine from ONNX via trtexec. "
-            "Modes: best (default), strongly-typed, fp16, fp16-int8 — see docs for YOLO vs strongly-typed. "
+            "Modes: strongly-typed (default), best, fp16, fp16-int8 — default strongly-typed for PTQ/quantized ONNX. "
             "Benchmark: model-opt-yolo trt-bench --engine PATH. "
             "Append extra trtexec args after -- for overrides."
         )
@@ -107,9 +108,10 @@ def main(argv: list[str] | None = None) -> int:
         "--mode",
         type=str,
         choices=("best", "strongly-typed", "fp16", "fp16-int8"),
-        default="best",
+        default="strongly-typed",
         help=(
-            "best (default): --best. strongly-typed: --stronglyTyped (strict ONNX types; often not fastest for YOLO). "
+            "strongly-typed (default): --stronglyTyped; use for quantized PTQ ONNX (Q/DQ). "
+            "best: --best (often better for non-quantized FP graphs). "
             "fp16: --fp16 (typ. non-quantized ONNX). fp16-int8: --fp16 --int8. Same min/opt/max shape. "
             "Trailing args after -- are forwarded to trtexec."
         ),
@@ -146,10 +148,11 @@ def main(argv: list[str] | None = None) -> int:
             pt = pt[1:]
         extra.extend(pt)
 
-    onnx_path = Path(args.onnx)
-    if not onnx_path.is_file():
-        print(f"Error: ONNX file not found: {onnx_path}", file=sys.stderr)
+    err = validate_readable_file(args.onnx, label="ONNX model")
+    if err:
+        print(err, file=sys.stderr)
         return 1
+    onnx_path = Path(args.onnx).expanduser().resolve()
 
     stem = onnx_path.stem
     if args.engine_out:

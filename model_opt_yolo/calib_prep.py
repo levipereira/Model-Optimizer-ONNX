@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
+from model_opt_yolo.io_checks import validate_existing_dir
 from model_opt_yolo.logutil import add_logging_arguments, setup_logging
 from model_opt_yolo.session_paths import default_calib_npy_path, default_calib_prep_log, run_timestamp
 
@@ -139,10 +140,11 @@ def main(argv: list[str] | None = None) -> int:
     log = logging.getLogger("coco_calib_prep")
 
     use_letterbox = not args.no_letterbox
-    root = Path(args.images_dir).resolve()
-    if not root.is_dir():
-        log.error("Not a directory: %s", root)
+    err = validate_existing_dir(args.images_dir, label="Images directory")
+    if err:
+        log.error("%s", err)
         return 1
+    root = Path(args.images_dir).expanduser().resolve()
 
     paths = list_images(root, args.calibration_data_size)
     if not paths:

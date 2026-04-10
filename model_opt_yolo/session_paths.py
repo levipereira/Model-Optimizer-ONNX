@@ -4,10 +4,6 @@ Uses ``MODELOPT_ARTIFACTS_ROOT`` when set (non-empty); otherwise
 ``<process current working directory>/artifacts``. The root directory is
 created automatically (``mkdir -p``). A per-process timestamp is used so
 repeated runs with the same hyperparameters do not overwrite outputs.
-
-Run ID pattern (autotune example)::
-
-    autotune_{model_stem}_qt{int8}_spr{30}_m_quick_img640x640_{20260409-183045}
 """
 
 from __future__ import annotations
@@ -16,9 +12,6 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-
-# Default matches upstream autotune when --schemes_per_region is omitted
-AUTOTUNE_DEFAULT_SCHEMES_NOTE = "DEF"
 
 
 def artifacts_root() -> Path:
@@ -42,65 +35,6 @@ def safe_component(s: str, max_len: int = 56) -> str:
     t = re.sub(r"[^a-zA-Z0-9._-]+", "_", s.strip())
     t = t.strip("_") or "unnamed"
     return t[:max_len]
-
-
-def argv_get(argv: list[str], long_flag: str, short_flag: str | None = None) -> str | None:
-    """Return value for ``--long value``, ``--long=value``, or ``-s value`` style."""
-    lf_eq = long_flag + "="
-    for i, a in enumerate(argv):
-        if a.startswith(lf_eq):
-            return a.split("=", 1)[1]
-        if a == long_flag and i + 1 < len(argv) and not argv[i + 1].startswith("-"):
-            return argv[i + 1]
-        if short_flag and a == short_flag and i + 1 < len(argv):
-            v = argv[i + 1]
-            if not v.startswith("-"):
-                return v
-    return None
-
-
-def imagesize_label(h: int | None, w: int | None) -> str:
-    if h is None or w is None:
-        return "dyn"
-    if h == w:
-        return str(h)
-    return f"{h}x{w}"
-
-
-def build_autotune_run_id(
-    model_stem: str,
-    *,
-    quant_type: str,
-    schemes_per_region: str | None,
-    mode: str | None,
-    img_h: int | None,
-    img_w: int | None,
-    ts: str | None = None,
-) -> str:
-    """Single directory name segment (no slashes)."""
-    ts = ts or run_timestamp()
-    parts = [
-        "autotune",
-        safe_component(model_stem),
-        f"qt{safe_component(quant_type, 12)}",
-    ]
-    if schemes_per_region is not None:
-        parts.append(f"spr{safe_component(schemes_per_region, 8)}")
-    else:
-        parts.append(f"spr{AUTOTUNE_DEFAULT_SCHEMES_NOTE}")
-    if mode and mode != "default":
-        parts.append(f"m_{safe_component(mode, 24)}")
-    parts.append(f"img{imagesize_label(img_h, img_w)}")
-    parts.append(ts)
-    return "_".join(parts)
-
-
-def autotune_run_dir(run_id: str) -> Path:
-    return artifacts_root() / "autotune" / run_id
-
-
-def default_autotune_wrapper_log(run_dir: Path) -> Path:
-    return run_dir / "wrapper.log"
 
 
 def default_calib_npy_path(
@@ -206,6 +140,44 @@ def predictions_logs_dir() -> Path:
     return artifacts_root() / "predictions" / "logs"
 
 
+def pipeline_e2e_logs_dir() -> Path:
+    """Legacy flat log dir; prefer :func:`pipeline_e2e_session_root`."""
+    return artifacts_root() / "pipeline_e2e" / "logs"
+
+
+def pipeline_e2e_session_root(session_id: str) -> Path:
+    """Root folder for one ``pipeline-e2e`` run — scoped logs and report (no mixing with other sessions)."""
+    p = artifacts_root() / "pipeline_e2e" / "sessions" / safe_component(session_id)
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def pipeline_e2e_session_trt_logs(session_id: str) -> Path:
+    """Session directory for ``trt_bench_*.log`` / ``build_trt_*.log`` (``report-runs --trt-logs-dir``)."""
+    p = pipeline_e2e_session_root(session_id) / "trt_engine" / "logs"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def pipeline_e2e_session_eval_logs(session_id: str) -> Path:
+    """Session directory for ``eval_*.log`` (``report-runs --eval-logs-dir``)."""
+    p = pipeline_e2e_session_root(session_id) / "predictions" / "logs"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def pipeline_e2e_session_quant_logs(session_id: str) -> Path:
+    """Session directory for ``quantize_*.log`` from pipeline-e2e."""
+    p = pipeline_e2e_session_root(session_id) / "quantized" / "logs"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def default_pipeline_e2e_session_log(*, session_id: str) -> Path:
+    """Main orchestrator log: ``artifacts/pipeline_e2e/sessions/<session_id>/pipeline.log``."""
+    return pipeline_e2e_session_root(session_id) / "pipeline.log"
+
+
 def default_eval_session_log(*, engine_stem: str, ts: str | None = None) -> Path:
     ts = ts or run_timestamp()
     predictions_logs_dir().mkdir(parents=True, exist_ok=True)
@@ -213,24 +185,3 @@ def default_eval_session_log(*, engine_stem: str, ts: str | None = None) -> Path
     return predictions_logs_dir() / f"{name}.log"
 
 
-def get_output_dir_value(argv: list[str]) -> str | None:
-    v = argv_get(argv, "--output_dir")
-    if v is not None:
-        return v
-    return argv_get(argv, "-o")
-
-
-def has_output_dir(argv: list[str]) -> bool:
-    for i, a in enumerate(argv):
-        if a == "--output_dir" or a.startswith("--output_dir="):
-            return True
-        if a == "-o":
-            return True
-    return False
-
-
-def append_output_dir(argv: list[str], out_dir: Path) -> list[str]:
-    """Append ``--output_dir`` if not already present."""
-    if has_output_dir(argv):
-        return argv
-    return [*argv, "--output_dir", str(out_dir)]

@@ -71,31 +71,6 @@ def setup_logging(
     return logger
 
 
-def pop_logging_flags(argv: list[str]) -> tuple[list[str], str | None, bool]:
-    """Remove ``-v`` / ``--verbose`` and ``--log-file`` from *argv*."""
-    out: list[str] = []
-    log_file: str | None = None
-    verbose = False
-    i = 0
-    while i < len(argv):
-        a = argv[i]
-        if a in ("-v", "--verbose"):
-            verbose = True
-            i += 1
-            continue
-        if a == "--log-file" and i + 1 < len(argv):
-            log_file = argv[i + 1]
-            i += 2
-            continue
-        if a.startswith("--log-file="):
-            log_file = a.split("=", 1)[1]
-            i += 1
-            continue
-        out.append(a)
-        i += 1
-    return out, log_file, verbose
-
-
 def add_logging_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--log-file",

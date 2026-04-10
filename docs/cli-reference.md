@@ -10,11 +10,12 @@ model-opt-yolo --help
 |------------|---------|
 | `download-coco` | Download COCO val2017 images + annotations (`instances_val2017.json`) |
 | `calib` | Build a NumPy calibration tensor (`.npy`) from a folder of images |
-| `quantize` | Wrapper around `python -m modelopt.onnx.quantization` (PTQ) |
-| `autotune` | Wrapper around `python -m modelopt.onnx.quantization.autotune` (Q/DQ placement) |
-| `build-trt` | Run `trtexec` to build a `.engine` from ONNX (`--mode`: `best`, `strongly-typed`, `fp16`, `fp16-int8`) |
+| `quantize` | Wrapper around `python -m modelopt.onnx.quantization` (PTQ, optional `--autotune`) |
+| `build-trt` | Run `trtexec` to build a `.engine` from ONNX (`--mode`: `strongly-typed`, `best`, `fp16`, `fp16-int8`) |
 | `trt-bench` | `trtexec` throughput/latency on an **existing** `.engine` (`--loadEngine`; logs under `artifacts/trt_engine/logs/`) |
 | `eval-trt` | COCO mAP on TensorRT engines — **`--output-format`** chooses `onnx_trt` (four tensors), Ultralytics single-tensor, or DeepStream-Yolo |
+| `report-runs` | Aggregate `trt-bench` / `eval-trt` logs into a Markdown report |
+| `pipeline-e2e` | Full run: calib → quantize → build-trt → eval-trt → trt-bench → report (optional `--autotune`, `--quant-matrix`) |
 
 ---
 
@@ -65,6 +66,7 @@ Runs ONNX PTQ via Model Optimizer.
 | `--quantize_mode` | `fp8`, `int8`, `int4` |
 | `--calibration_method` | e.g. `entropy`, `max` (mode-dependent) |
 | `--high_precision_dtype` | Default **`fp32`** in this project (avoids many YOLO `infer_shapes` issues); `fp16` optional |
+| `--autotune` | Q/DQ placement tuning via TensorRT timing (`quick` \| `default` \| `extensive`). Effective for **int8/fp8**; **int4** ignores it. Needs GPU + TensorRT. |
 | `--suffix` | Output suffix (default `.quant.onnx`) |
 
 ### Pass-through (`--` …)
@@ -83,6 +85,10 @@ Everything after a lone `--` is appended to the same command as `python -m model
 Example:
 
 ```bash
+# Quantize with integrated autotune
+model-opt-yolo quantize --calibration_data ... --onnx_path ... --autotune default
+
+# Pass extra flags through to modelopt
 model-opt-yolo quantize --calibration_data ... --onnx_path ... -- --calibrate_per_node --simplify
 ```
 
@@ -159,25 +165,7 @@ When `--autotune` is set on upstream, it tunes Q/DQ placement for TensorRT. Thes
 | `--autotune_timing_runs` | Timed runs for latency. |
 | `--autotune_trtexec_args` | Extra `trtexec` arguments as one quoted string. |
 
-> **Note:** This repo also provides **`model-opt-yolo autotune`** for the separate `modelopt.onnx.quantization.autotune` CLI. The `--autotune*` flags above are the **in-module** PTQ autotune integrated into `python -m modelopt.onnx.quantization`, which is different from that subcommand.
-
----
-
-## `model-opt-yolo autotune`
-
-Requires **Model Optimizer from Git** (full autotune CLI). The Docker image installs from GitHub by default.
-
-**Wrapper-only options** (consumed before upstream sees them):
-
-| Option | Description |
-|--------|-------------|
-| `--imagesize` | `N` or `HxW` — TensorRT profile for **dynamic** spatial dims |
-| `--input_name` | ONNX input tensor name for TRT shapes (default `images`) |
-| `--log-file`, `-v` | Logging |
-
-If the ONNX input is dynamic and `--imagesize` is omitted, the wrapper exits with an error.
-
-Default output directory pattern: `artifacts/autotune/autotune_<stem>_qt<...>_spr<...>_img<...>_<timestamp>/` when `--output_dir` is not set.
+> **Note:** The `--autotune*` flags above are the **in-module** PTQ autotune integrated into `python -m modelopt.onnx.quantization`, passed through by `model-opt-yolo quantize --autotune`.
 
 ---
 
@@ -193,7 +181,7 @@ Runs **`trtexec`** to compile an ONNX file into a TensorRT **`.engine`**. Requir
 | `--img-size` | Square `H=W` for shape profile (default `640`) |
 | `--batch` | Batch size for shapes (see modes below; default `1`) |
 | `--input-name` | Input tensor name for `--minShapes` / `--optShapes` / `--maxShapes` (default `images`) |
-| `--mode` | `best` (default), `strongly-typed`, `fp16`, or `fp16-int8` |
+| `--mode` | `strongly-typed` (default), `best`, `fp16`, or `fp16-int8` |
 | `--engine-out` | Output `.engine` path (default: `<artifacts>/trt_engine/<onnx-stem>.engine`) |
 | `--timing-cache` | Timing cache file (default: `<engine>.timing.cache`) |
 | `--log-file`, `-v` | Logging (default log under `<artifacts>/trt_engine/logs/build_trt_*.log`) |
@@ -202,15 +190,13 @@ Runs **`trtexec`** to compile an ONNX file into a TensorRT **`.engine`**. Requir
 
 All modes share the same dynamic-shape profile (**`minShapes` / `optShapes` / `maxShapes`**: **batch × 3 × H × W**). Throughput on an already-built plan is measured with **`trt-bench`**, not `build-trt`.
 
-**`best`** (default) — `trtexec` **`--best`**
+**`strongly-typed`** (default) — `trtexec` **`--stronglyTyped`**
 
-Lets TensorRT consider multiple precisions and tactics to minimize latency. This is usually a strong default when you care about **speed** and can outperform a strict graph import because the builder has more freedom to place FP16 (and other) kernels where they help.
+Builds a **strongly typed** network: TensorRT follows the ONNX graph’s tensor types and Q/DQ layout **without** the same cross-layer precision exploration as **`--best`**. For **Model Optimizer PTQ** artifacts (INT8/FP8/INT4 Q/DQ graphs), this is the **recommended default** so the engine respects the quantized types.
 
-**`strongly-typed`** — `trtexec` **`--stronglyTyped`**
+**`best`** — `trtexec` **`--best`**
 
-Builds a **strongly typed** network: TensorRT follows the ONNX graph’s tensor types and Q/DQ layout **without** the same cross-layer precision exploration as **`--best`**. Think of it as honoring the exported graph “as typed,” not as “apply every global optimization.”
-
-That strictness is **not YOLO-specific**, but **YOLO-style detectors** often suffer here: many ops must remain **FP32** in the exported graph while you still want TensorRT to run hot paths in **FP16** elsewhere. **`best`** typically handles that tradeoff better. **`--mode strongly-typed` is not recommended as the default for YOLO** when **throughput** is the goal—it can leave performance on the table. Use it when you **intentionally** need maximum fidelity to the ONNX types (debugging, compliance, or graphs where strong typing is required).
+Lets TensorRT consider multiple precisions and tactics to minimize latency. Often a good choice for **non-quantized** FP ONNX when you care about **speed**; for PTQ ONNX, prefer **`strongly-typed`** unless you have a reason to experiment with **`--best`**.
 
 **`fp16`** — `trtexec` **`--fp16`**
 
@@ -222,8 +208,8 @@ Classic TensorRT combination for **FP** ONNX when you want both FP16 and INT8 ke
 
 | `--mode` | Flags | Summary |
 |----------|-------|---------|
-| **`best`** (default) | **`--best`** | Broad tactic / precision search; good default when optimizing latency. |
-| **`strongly-typed`** | **`--stronglyTyped`** | Strict ONNX types; avoid as default for YOLO if throughput matters. |
+| **`strongly-typed`** (default) | **`--stronglyTyped`** | Strict ONNX/Q/DQ types; default for PTQ/quantized ONNX. |
+| **`best`** | **`--best`** | Broad tactic / precision search; common for non-quantized FP graphs. |
 | **`fp16`** | **`--fp16`** | Non-quantized ONNX → FP16 where applicable. |
 | **`fp16-int8`** | **`--fp16`** **`--int8`** | FP + INT8 search space; often recommended for YOLO from FP ONNX (see TensorRT docs). |
 
@@ -307,6 +293,34 @@ model-opt-yolo eval-trt --output-format ultralytics --output-tensor output0 --en
 model-opt-yolo eval-trt --output-format deepstream_yolo --output-tensor output --engine model.engine \
   --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json
 ```
+
+---
+
+## `model-opt-yolo pipeline-e2e`
+
+Orchestrates **calib** → **quantize** → **build-trt** → **eval-trt** → **trt-bench** → **report-runs** under a session id (logs under `artifacts/pipeline_e2e/sessions/<id>/`).
+
+| Argument | Notes |
+|----------|--------|
+| `--onnx` | Input FP32 ONNX (**required**) |
+| `--quant-matrix default` \| `all` | One combo vs six (int8/fp8 entropy+max, int4 awq_clip+rtn_dq) |
+| `--autotune` | Same presets as `quantize`; passed to each quantize step — applies only to int8/fp8 combos when using `all` |
+| `--continue-on-error` | Continue after a failed combo |
+| `--no-report` | Skip final Markdown report |
+
+See `model-opt-yolo pipeline-e2e --help` for image paths, `--input-name`, bench duration, etc.
+
+---
+
+## `model-opt-yolo report-runs`
+
+Scans log directories and writes a Markdown report with tables plus **PNG** bar charts (throughput and mAP) next to the `.md` file (`<stem>_throughput_qps.png`, `<stem>_map5095.png`). Used standalone or at the end of `pipeline-e2e`.
+
+| Argument | Description |
+|----------|-------------|
+| `--trt-logs-dir` | Folder with `trt_bench_*.log` (default: `artifacts/trt_engine/logs`) |
+| `--eval-logs-dir` | Folder with `eval_*.log` (default: `artifacts/predictions/logs`) |
+| `-o`, `--output` | Output `.md` path (default: `artifacts/reports/trt_eval_report_<timestamp>.md`) |
 
 ---
 

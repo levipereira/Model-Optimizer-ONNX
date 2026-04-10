@@ -12,17 +12,17 @@
 
 ## TensorRT / autotune
 
-**Symptom:** Concat / shape errors when building engines during **autotune** (e.g. dynamic spatial dimensions collapsed to 1).
+**Symptom:** Concat / shape errors when building engines during autotune (e.g. dynamic spatial dimensions collapsed to 1).
 
-**Fix:** Pass **`--imagesize`** to the autotune wrapper so TRT gets explicit `min/opt/max` shapes. Ensure ONNX input dimensions match real inference sizes.
+**Fix:** Ensure ONNX input dimensions match real inference sizes. When using `quantize --autotune`, Model Optimizer handles shape profiles internally via the `--calibration_shapes` / `--override_shapes` pass-through flags if needed.
 
 ---
 
-## Model Optimizer autotune CLI missing
+## Model Optimizer autotune not working
 
-**Symptom:** `python -m modelopt.onnx.quantization.autotune` not found from PyPI-only installs.
+**Symptom:** `--autotune` flag on `quantize` has no effect, or autotune features missing.
 
-**Fix:** Install Model Optimizer **from GitHub** (as in the Docker image). PyPI wheels may omit the full autotune entry point.
+**Fix:** Install Model Optimizer **from GitHub** (as in the Docker image). PyPI wheels may omit full autotune support.
 
 ---
 

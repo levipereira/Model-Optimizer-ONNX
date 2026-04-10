@@ -9,7 +9,7 @@
 [![Context7](https://img.shields.io/badge/Context7-Docs-blue?logo=data:image/svg%2bxml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSIxMCIgZmlsbD0id2hpdGUiLz48dGV4dCB4PSI3IiB5PSIxNyIgZm9udC1zaXplPSIxNCIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtd2VpZ2h0PSJib2xkIiBmaWxsPSIjMjU2M0VCIj5DPC90ZXh0Pjwvc3ZnPg==)](https://context7.com/levipereira/model-optimizer-yolo)
 [![mAP, latency & PTQ settings](https://img.shields.io/badge/mAP%2C%20latency%20%26%20PTQ%20settings%20(ref)-in%20progress-F59E0B)](https://github.com/levipereira/Model-Optimizer-YOLO/discussions)
 
-**ONNX post-training quantization (PTQ)** and **TensorRT** deployment helpers for **YOLO-style** detectors — built on [NVIDIA Model Optimizer](https://github.com/NVIDIA/Model-Optimizer), with COCO calibration and optional Q/DQ **autotune**.
+**ONNX PTQ** and **TensorRT** helpers for **YOLO-style** detectors — [NVIDIA Model Optimizer](https://github.com/NVIDIA/Model-Optimizer), COCO calibration, optional **`quantize --autotune`** ([workflow](docs/workflow.md)).
 
 | | |
 |--|--|
@@ -45,7 +45,9 @@ Please read the pinned **[welcome announcement](https://github.com/levipereira/M
 
 ## Pipeline
 
-**Autotune** (Q/DQ placement search) is **optional**. **COCO images + annotations** and a **`calib.npy`** from **`calib`** are **required** for PTQ in the usual workflow (unless you supply an equivalent image set and build calibration yourself).
+**Fastest path:** **`model-opt-yolo pipeline-e2e --onnx models/…onnx`** — runs calib through bench and writes a **Markdown report** (session logs under `artifacts/pipeline_e2e/sessions/…`). See [workflow](docs/workflow.md).
+
+Manual PTQ path: **calib** → **quantize** → **build-trt** → **eval-trt** (optional **`--autotune`** on `quantize`). For a **report** from existing logs, use **`report-runs`**. You need images + annotations and **`calib.npy`** from **`calib`**.
 
 ```mermaid
 flowchart TD
@@ -54,32 +56,32 @@ flowchart TD
   C --> H[download-coco]
   H --> I[model-opt-yolo calib]
   I --> J[artifacts/calibration/*.npy]
-  J --> K{Autotune Q/DQ<br/>optional}
-  K -->|yes| E[model-opt-yolo autotune]
-  E --> F[artifacts/autotune/.../<br/>optimized_final.onnx]
-  F --> Q[model-opt-yolo quantize]
-  K -->|no| Q
+  J --> Q["model-opt-yolo quantize<br/>(--autotune quick|default|extensive — optional)"]
   Q --> L[artifacts/quantized/*.quant.onnx]
   L --> M[model-opt-yolo build-trt]
   M --> N[artifacts/trt_engine/*.engine]
   N --> O[model-opt-yolo eval-trt<br/>COCO mAP]
 ```
 
-*More detail: [docs/workflow.md](docs/workflow.md)*
+*Details, `pipeline-e2e`, and report: [docs/workflow.md](docs/workflow.md)*
 
 ---
 
 ## Quick Steps
 
-Run these **inside the container** (or locally after `pip install -e .`):
+Run **inside the container** (or locally after `pip install -e .`):
 
-1. Put ONNX under `models/` (export from PyTorch with the flags you use in production).
-2. `model-opt-yolo download-coco --output-dir data/coco` — COCO val + annotations for **calib** and **eval**.
+- **One command (calib → engine → eval → bench + report):**  
+  `model-opt-yolo pipeline-e2e --onnx models/your.onnx` — add `--img-size`, `--input-name`, `--output-format` as needed ([workflow](docs/workflow.md)).
+
+**Or step by step:**
+
+1. ONNX under `models/` (match your production export).
+2. `model-opt-yolo download-coco --output-dir data/coco`
 3. `model-opt-yolo calib --images_dir data/coco/val2017 --calibration_data_size 500 --img_size 640`
-4. *(Optional)* `model-opt-yolo autotune …` if you want Q/DQ placement search before PTQ.
-5. `model-opt-yolo quantize --calibration_data artifacts/calibration/…npy --onnx_path models/your.onnx` (use `artifacts/autotune/…/optimized_final.onnx` if you autotuned).
-6. `model-opt-yolo build-trt --onnx artifacts/quantized/your…quant.onnx --img-size 640` (default `--mode` is **`best`**; for throughput on YOLO, **`strongly-typed`** is usually *not* the first choice — see [CLI reference — build-trt modes](docs/cli-reference.md#model-opt-yolo-build-trt)) — engine: `artifacts/trt_engine/<same-stem>.engine`
-7. `model-opt-yolo eval-trt --output-format onnx_trt --engine …engine --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json` (use `ultralytics` or `deepstream_yolo` if that matches your engine; see table below)
+4. `model-opt-yolo quantize --calibration_data artifacts/calibration/…npy --onnx_path models/your.onnx` (optional: `--autotune default`)
+5. `model-opt-yolo build-trt --onnx artifacts/quantized/your…quant.onnx --img-size 640` → `artifacts/trt_engine/<stem>.engine` (default `--mode strongly-typed`; see [docs](docs/cli-reference.md#model-opt-yolo-build-trt))
+6. `model-opt-yolo eval-trt --output-format onnx_trt --engine … --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json` (pick `ultralytics` / `deepstream_yolo` if needed — table below)
 
 CLI details: [docs/cli-reference.md](docs/cli-reference.md) · optional docs site: `pip install -e ".[docs]" && mkdocs serve` ([`mkdocs.yml`](mkdocs.yml))
 

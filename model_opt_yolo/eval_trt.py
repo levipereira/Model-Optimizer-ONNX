@@ -32,17 +32,20 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import logging
 import os
 import sys
 import time
+from contextlib import redirect_stdout
 from pathlib import Path
 
 import cv2
 import numpy as np
 from tqdm import tqdm
 
+from model_opt_yolo.io_checks import validate_existing_dir, validate_readable_file
 from model_opt_yolo.logutil import add_logging_arguments, setup_logging
 from model_opt_yolo.session_paths import artifacts_root, default_eval_session_log, run_timestamp
 
@@ -320,8 +323,16 @@ def run_eval(
     # Load engine
     log.info("Loading TRT engine: %s", engine_path)
     runtime = trt.Runtime(TRT_LOGGER)
-    with open(engine_path, "rb") as f:
-        engine = runtime.deserialize_cuda_engine(f.read())
+    try:
+        with open(engine_path, "rb") as f:
+            raw = f.read()
+    except OSError as exc:
+        log.error("Cannot read engine file %s: %s", engine_path, exc)
+        raise RuntimeError(f"Cannot read engine: {exc}") from exc
+    engine = runtime.deserialize_cuda_engine(raw)
+    if engine is None:
+        log.error("TensorRT failed to deserialize engine (invalid or incompatible plan): %s", engine_path)
+        raise RuntimeError("TensorRT engine deserialization failed")
 
     inputs, outputs, bindings, stream = allocate_buffers(engine)
     context = engine.create_execution_context()
@@ -375,7 +386,11 @@ def run_eval(
         log.info("Detection output tensor: %s", single_tensor_name)
 
     # Load COCO annotations
-    coco_gt = COCO(annotations_json)
+    try:
+        coco_gt = COCO(annotations_json)
+    except Exception as exc:
+        log.error("Cannot load COCO annotations %s: %s", annotations_json, exc)
+        raise RuntimeError(f"Invalid or unreadable annotations file: {annotations_json}") from exc
     img_ids = sorted(coco_gt.getImgIds())
     log.info("COCO images: %d", len(img_ids))
 
@@ -463,9 +478,17 @@ def run_eval(
     log.info("--- COCO mAP Evaluation ---")
     coco_dt = coco_gt.loadRes(save_json)
     coco_eval = COCOeval(coco_gt, coco_dt, "bbox")
-    coco_eval.evaluate()
-    coco_eval.accumulate()
-    coco_eval.summarize()
+    # pycocotools prints AP/AR tables to stdout — capture so session log file includes them.
+    coco_buf = io.StringIO()
+    with redirect_stdout(coco_buf):
+        coco_eval.evaluate()
+        coco_eval.accumulate()
+        coco_eval.summarize()
+    coco_text = coco_buf.getvalue().rstrip()
+    if coco_text:
+        sys.stdout.write(coco_text + ("\n" if not coco_text.endswith("\n") else ""))
+        sys.stdout.flush()
+        log.info("--- pycocotools COCOeval (stdout) ---\n%s", coco_text)
 
     map_val = coco_eval.stats[0]
     map50 = coco_eval.stats[1]
@@ -524,6 +547,15 @@ def main(argv: list[str] | None = None) -> int:
     add_logging_arguments(parser)
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
 
+    for err in (
+        validate_readable_file(args.engine, label="TensorRT engine"),
+        validate_existing_dir(args.images, label="Images directory"),
+        validate_readable_file(args.annotations, label="COCO annotations"),
+    ):
+        if err:
+            print(err, file=sys.stderr)
+            return 1
+
     ts = run_timestamp()
     log_path = args.log_file
     if log_path is None:
@@ -532,18 +564,22 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging("eval_trt", log_file=log_path, verbose=args.verbose)
     log = logging.getLogger("eval_trt")
 
-    run_eval(
-        engine_path=args.engine,
-        images_dir=args.images,
-        annotations_json=args.annotations,
-        img_size=args.img_size,
-        conf_thres=args.conf_thres,
-        save_json=args.save_json,
-        output_format=normalize_eval_output_format(args.output_format),
-        output_tensor=args.output_tensor,
-        iou_thres=args.iou_thres,
-        log=log,
-    )
+    try:
+        run_eval(
+            engine_path=args.engine,
+            images_dir=args.images,
+            annotations_json=args.annotations,
+            img_size=args.img_size,
+            conf_thres=args.conf_thres,
+            save_json=args.save_json,
+            output_format=normalize_eval_output_format(args.output_format),
+            output_tensor=args.output_tensor,
+            iou_thres=args.iou_thres,
+            log=log,
+        )
+    except (RuntimeError, ValueError) as exc:
+        log.error("%s", exc)
+        return 1
     return 0
 
 
