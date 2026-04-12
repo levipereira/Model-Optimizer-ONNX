@@ -46,6 +46,10 @@ def main(argv: list[str] | None = None) -> int:
         from model_opt_yolo.pipeline_e2e import main as run
 
         return run(rest)
+    if cmd in ("trex-analyze", "trex_analyze"):
+        from model_opt_yolo.trex_analyze import main as run
+
+        return run(rest)
 
     print(f"Unknown command: {cmd!r}", file=sys.stderr)
     _print_usage(to_stdout=False)
@@ -69,6 +73,7 @@ Commands:
   eval-trt    COCO mAP on TRT engines (EfficientNMS, Ultralytics, or DeepStream-Yolo output)
   report-runs Scan trt_bench / eval logs → Markdown report (tables + charts); --session-id uses pipeline_e2e/sessions/…
   pipeline-e2e  End-to-end: calib → FP16 baseline → quantize [+autotune] → build-trt → eval-trt → trt-bench → report
+  trex-analyze  trtexec build+profile → TREx JSON/graph; optional --compare-onnx (two ONNX graphs; needs trex)
 
 Examples:
   model-opt-yolo download-coco --output-dir data/coco

@@ -12,7 +12,7 @@ export MODELOPT_ARTIFACTS_ROOT=/path/to/my_artifacts
 
 If the path does not exist, it is created when a command first needs it. Relative values are resolved against the process current working directory at the time `artifacts_root()` runs.
 
-**Session id (optional):** If you set **`export SESSION_ID=my-run-1`**, commands that support **`--session-id`** (`pipeline-e2e`, `build-trt`, `eval-trt`, `trt-bench`, `report-runs`) use that value automatically when the flag is omitted. A **`--session-id`** on the command line overrides **`SESSION_ID`**.
+**Session id (optional):** If you set **`export SESSION_ID=my-run-1`**, commands that support **`--session-id`** (`pipeline-e2e`, `build-trt`, `eval-trt`, `trt-bench`, `report-runs`, **`trex-analyze`**) use that value automatically when the flag is omitted. A **`--session-id`** on the command line overrides **`SESSION_ID`**.
 
 ---
 
@@ -26,6 +26,8 @@ If the path does not exist, it is created when a command first needs it. Relativ
 | `artifacts/quantized/logs/` | Per-run `quantize_*.log` files |
 | `artifacts/trt_engine/` | TensorRT `.engine` files and `.engine.timing.cache` from `model-opt-yolo build-trt` (default output) |
 | `artifacts/trt_engine/logs/` | Per-run `build_trt_*.log` and `trt_bench_*.log` |
+| `artifacts/trex/runs/<name>/` | **`trex-analyze`**: `mode__<mode>/` or `primary/` + `compare/` when **`--compare-onnx`**; `trex_analyze.log`, TREx JSON, optional plan graph (`.svg`/…), optional `compare_layers__*.csv` |
+| `artifacts/pipeline_e2e/sessions/<id>/trex/` | Session-scoped **`trex-analyze`** runs (same layout under each session) |
 | `artifacts/predictions/` | COCO prediction JSON from `eval-trt` |
 | `artifacts/predictions/logs/` | `eval_*.log` |
 | `artifacts/autotune/` | Autotune artifacts (when using `quantize --autotune`) |

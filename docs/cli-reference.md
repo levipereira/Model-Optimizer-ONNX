@@ -16,6 +16,7 @@ model-opt-yolo --help
 | `eval-trt` | COCO mAP on TensorRT engines — **`--output-format`** chooses `onnx_trt` (four tensors), Ultralytics single-tensor, or DeepStream-Yolo |
 | `report-runs` | Aggregate `trt-bench` / `eval-trt` logs into a Markdown report |
 | `pipeline-e2e` | Full run: calib → FP16 baseline → quantize → build-trt → eval-trt → trt-bench → report (optional `--autotune`, `--quant-matrix`) |
+| `trex-analyze` | `trtexec` build + profile → layer/timing JSON, optional TREx plan graph (SVG/PNG); optional **`--compare-onnx`** for two different ONNX files + layer CSV (needs **`trex`** / Docker TREx) |
 
 ---
 
@@ -224,6 +225,40 @@ Arguments after `--` are appended to the **`trtexec`** command (after the built-
 model-opt-yolo build-trt --onnx model.fp.onnx --img-size 640 --batch 1 -- --verbose
 model-opt-yolo build-trt --onnx model.onnx --mode best --img-size 640
 model-opt-yolo build-trt --onnx model.onnx --mode fp16-int8 --img-size 640
+```
+
+---
+
+## `model-opt-yolo trex-analyze`
+
+End-to-end **TensorRT Engine Explorer (TREx)** workflow for **one ONNX** and a **`build-trt`-style `--mode`**: runs **`trtexec`** twice — **build** (with **`--profilingVerbosity=detailed`**, **`--exportLayerInfo`**, **`--dumpLayerInfo`**) and **profile** (**`--loadEngine`**, **`--exportTimes`**, **`--exportProfile`**, **`--exportLayerInfo`**, CUDA graph + separate profile run, matching the upstream TREx `process_engine` pattern). Writes everything under **`artifacts/trex/runs/<stem>_<mode>_<timestamp>/`** (or **`artifacts/pipeline_e2e/sessions/<id>/trex/…`** with **`--session-id`**).
+
+**Comparison** is for **two different ONNX graphs** (e.g. FP16 export vs PTQ `*.quant.onnx`, or two quantized variants). Pass **`--compare-onnx PATH`**; optional **`--compare-onnx-mode`** sets the second builder mode (defaults to **`--mode`**). Outputs use **`primary/`** and **`compare/`** subfolders plus **`compare_layers__*.csv`**. Comparing the **same** ONNX with two **`trtexec`** modes only is not the intended workflow — use two exports instead.
+
+Requires **`trex`**. On the Docker image, TREx is in **`env_trex`** (not the same Python as **`quantize`** / **`build-trt`**); **`trex-analyze`** first adds **`$TREX_VENV/.../site-packages`** to **`sys.path`**, then **re-executes** with **`$TREX_VENV/bin/python`** only if **trex** is still missing (override **`TREX_VENV`**, disable re-exec with **`MODELOPT_TREX_NO_REEXEC=1`**). Locally, use a **dedicated venv** for **`trt-engine-explorer`** or install **`model-opt-yolo`** into that venv too. **Graphviz** (`dot`) must be on **`PATH`** for **`--graph-format`**.
+
+**Common arguments**
+
+| Argument | Description |
+|----------|-------------|
+| `--onnx` | Primary `.onnx` (**required**) |
+| `--mode` | Same as **`build-trt`** for **`--onnx`**: `strongly-typed`, `best`, `fp16`, `fp16-int8` |
+| `--compare-onnx` | Optional second `.onnx` (must differ from **`--onnx`** after path resolution) |
+| `--compare-onnx-mode` | Builder mode for **`--compare-onnx`** (default: same as **`--mode`**) |
+| `--img-size`, `--batch`, `--input-name` | Shape profile (defaults match **`build-trt`**) |
+| `--graph-format` | `svg` (default), `png`, or `pdf` for the TREx **`DotGraph`** plan diagram; **`--no-graph`** skips |
+| `--output-dir` | Force run directory (default auto under **`artifacts/trex/runs/`**) |
+| `--session-id` | Session-scoped output under **`pipeline_e2e/sessions/<id>/trex/`** |
+| `--log-file`, `-v` | Logging (default: **`trex_analyze.log`** inside the run directory) |
+
+### Pass-through (`--` …)
+
+Extra **`trtexec`** tokens after **`--`** are appended to **both** the build and profile commands. **`trex-analyze`** does not set **`--memPoolSize`**; TensorRT defaults apply unless you pass e.g. **`-- --memPoolSize=workspace:8192MiB`**.
+
+```bash
+model-opt-yolo trex-analyze --onnx models/yolo.onnx --mode strongly-typed --img-size 640
+model-opt-yolo trex-analyze --onnx models/yolo_fp16.onnx --mode fp16 \\
+  --compare-onnx artifacts/quantized/yolo.int8.entropy.quant.onnx --compare-onnx-mode strongly-typed --img-size 640
 ```
 
 ---

@@ -25,6 +25,8 @@ pip install -e .
 
 This registers the **`model-opt-yolo`** command (see [CLI reference](cli-reference.md)).
 
+**TREx:** do **not** install `trt-engine-explorer` (**trex**) into the same Python env as **`cupy`**, **PyTorch**, and **`model-opt-yolo`** unless you enjoy dependency fights (e.g. **trex** wants **`pandas==2.2.1`**; **cupy** may require **numpy ≥ 2**). Use a **dedicated venv** for TREx. The Docker image puts TREx in **`$TREX_VENV`**; **`trex-analyze`** switches to that interpreter when **trex** is not importable (see [Docker reference](docker-reference.md#trex-for-model-profiling)).
+
 ---
 
 ## COCO val2017 (optional)

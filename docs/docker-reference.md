@@ -32,28 +32,40 @@ Set inside the Dockerfile for Model Optimizer compatibility with TensorRT images
 
 ## TREx for model profiling
 
-The image includes an optional **TensorRT engine profiling** stack, separate from the **`model-opt-yolo`** Python environment:
+The image includes an optional **TensorRT Engine Explorer (TREx)** checkout for analyzing **`.engine`** plans and **`trtexec`** JSON (layers, timing, notebooks). It is **not** required for **`model-opt-yolo`** PTQ.
+
+### `install.sh`: `--full` vs `--core` vs `--venv`
+
+These flags come from [NVIDIA’s `install.sh`](https://github.com/NVIDIA/TensorRT/blob/release/10.15/tools/experimental/trt-engine-explorer/install.sh):
+
+| Option | Meaning |
+|--------|---------|
+| **`--full`** (default) | `pip install -e .[notebook]` — TREx **core** deps plus **notebook** extras (Jupyter, plotting, etc.). |
+| **`--core`** | `pip install -e .` — **core** dependencies only (`requirements.txt`; lighter, no notebook stack). |
+| **`--venv`** | Before the pip step, create a subdirectory **`env_trex`** with **`virtualenv`** and **activate** it so TREx installs **only inside that venv**. |
+
+**Important:** **`trtexec`** is the TensorRT **binary** on **`PATH`** from the NGC image. It is **not** installed by TREx or by a venv. **`--venv`** isolates **Python packages** (TREx, pandas, Jupyter, …), not **`trtexec`**.
+
+This Dockerfile runs **`source ./install.sh --venv --full`**: TREx and its pins (**`pandas==2.2.1`**, etc.) live in **`env_trex`** at **`TREX_VENV`**, separate from the main **`pip`** where **`model-opt-yolo`**, Model Optimizer, and ORT are installed — avoiding clashes with **numpy** / **CuPy** / other stacks.
+
+The build **`touch`**es **`bin/__init__.py`**, **`sed`**-patches **`bin/trex.py`** (see [Troubleshooting — TREx](troubleshooting.md#trex-cli-import-errors-bin--utils)). **`model-opt-yolo`** is **not** installed into **`env_trex`** (that would pull **torch** / **pycuda** and duplicate the whole CLI stack). Instead, **`trex-analyze`** prepends **`env_trex`**’s **`site-packages`** to **`sys.path`** so **`import trex`** works while the process keeps the **image** Python where **`model-opt-yolo`** is installed; it **re-executes** with **`TREX_VENV`**’s interpreter only if **trex** is still missing (set **`MODELOPT_TREX_NO_REEXEC=1`** to skip re-exec for debugging).
 
 | Path | Contents |
 |------|----------|
-| **`/workspace/TREx`** | Shallow git clone of [NVIDIA/TensorRT](https://github.com/NVIDIA/TensorRT) at **`TENSORRT_TREX_GIT_REF`** (default **`release/10.15`**). |
-| **`/workspace/TREx/env`** | Python **venv** with [TREx](https://github.com/NVIDIA/TensorRT/tree/release/10.15/tools/experimental/trt-engine-explorer) (*trt-engine-explorer*) installed in editable mode with **`[notebook]`** extras (Jupyter, plotting, and related dependencies per upstream `setup.py`). |
-| **`/workspace/TREx/tools/experimental/trt-engine-explorer/`** | TREx package root: notebooks (`notebooks/`), `utils/` (e.g. engine processing helpers), and upstream `README.md`. |
-
-**Purpose:** analyze TensorRT **`.engine`** plans and profiling artifacts (layers, timing, comparisons). This matches the experimental **TensorRT Engine Explorer** workflow described in NVIDIA’s documentation and blog posts; it is **not** required for ONNX PTQ, calibration, **`quantize`**, or **`build-trt`** inside this project.
+| **`/workspace/TREx`** | Shallow clone of [NVIDIA/TensorRT](https://github.com/NVIDIA/TensorRT) at **`TENSORRT_TREX_GIT_REF`** (default **`release/10.15`**). |
+| **`/workspace/TREx/tools/experimental/trt-engine-explorer/`** | TREx package root: **`install.sh`**, **`env_trex/`** (venv), `notebooks/`, `utils/`, upstream `README.md`. |
 
 **Usage (inside the container):**
 
 ```bash
-source /workspace/TREx/env/bin/activate
+source /workspace/TREx/tools/experimental/trt-engine-explorer/env_trex/bin/activate
 trex --help
+# model-opt-yolo trex-analyze ...  # re-execs into env_trex automatically if needed
 ```
 
-Do **not** prepend **`/workspace/TREx/env/bin`** to the global `PATH` in the image: the default shell should keep using the base environment where **`model-opt-yolo`** is installed. Activate the TREx venv only when you run TREx or its notebooks.
+**Version note:** the **`release/10.15`** Git tree is **source** for TREx scripts/notebooks; the **TensorRT** runtime, **`trtexec`**, and **`import tensorrt`** still come from the [NGC base image](#base-image). Minor skew between branch docs and the container TRT version is possible.
 
-**Version note:** the NGC base image ships a fixed **TensorRT** runtime (see [Base image](#base-image)). The **`release/10.15`** tree provides **source** and **TREx** tooling aligned with that product line; minor differences from the container’s preinstalled TensorRT Python wheel are possible. For engine analysis, use **`trtexec`** and artifacts produced in the same container when troubleshooting.
-
-**Build-time dependencies:** the Dockerfile installs **`graphviz`** (apt) for TREx graph backends (`pydot` / Graphviz) and **`python3-venv`** so **`python3 -m venv`** can create **`/workspace/TREx/env`** reliably.
+**Build-time dependencies:** **`graphviz`** and **`sudo`** (apt). **`sudo`** is required because **`install.sh`** runs **`sudo apt install graphviz`**.
 
 ---
 
@@ -63,6 +75,7 @@ Do **not** prepend **`/workspace/TREx/env/bin`** to the global `PATH` in the ima
 2. Install **`nvidia-modelopt[onnx]`** from GitHub at `MODELOPT_GIT_REF`.
 3. **`pip install /workspace/model-opt-yolo`** — installs **`model-opt-yolo`** from copied `pyproject.toml` and `model_opt_yolo/`.
 4. Reinstall **`onnxruntime-gpu`** from the CUDA 13 nightly index with **`--no-deps`** so wheels match the container toolkit.
+5. Clone **TensorRT**, patch TREx, run **`source ./install.sh --venv --full`** (no second **`pip install`** of **`model-opt-yolo`** into **`env_trex`**).
 
 ---
 

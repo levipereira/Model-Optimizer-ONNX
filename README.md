@@ -184,15 +184,17 @@ See [docs/docker-reference.md](docs/docker-reference.md) for build args and pers
 
 #### TensorRT Engine Explorer (TREx) — model profiling (optional)
 
-The Docker image clones the [NVIDIA TensorRT](https://github.com/NVIDIA/TensorRT) repository at branch **`release/10.15`** into **`/workspace/TREx`** and installs **[TREx](https://github.com/NVIDIA/TensorRT/tree/release/10.15/tools/experimental/trt-engine-explorer)** (*trt-engine-explorer*) into a dedicated Python virtual environment at **`/workspace/TREx/env`**. Use this tooling **only** for **TensorRT engine profiling and exploration** (layer graphs, `trtexec` JSON, notebooks). It is **not** part of the **`model-opt-yolo`** PTQ pipeline (calib → quantize → build-trt → eval).
+The Docker image clones the [NVIDIA TensorRT](https://github.com/NVIDIA/TensorRT) repository at branch **`release/10.15`** into **`/workspace/TREx`** and installs **[TREx](https://github.com/NVIDIA/TensorRT/tree/release/10.15/tools/experimental/trt-engine-explorer)** in a **separate virtualenv** (`source install.sh --venv --full` → **`env_trex`**) so TREx’s **pandas** pins do not collide with **`model-opt-yolo`**, **CuPy**, or **numpy** in the main image Python. Use this **only** for **TensorRT engine profiling** (layer graphs, `trtexec` JSON, notebooks). It is **not** part of the PTQ pipeline.
 
 ```bash
-source /workspace/TREx/env/bin/activate
+source /workspace/TREx/tools/experimental/trt-engine-explorer/env_trex/bin/activate
 trex --help
 # Notebooks and utilities: /workspace/TREx/tools/experimental/trt-engine-explorer/
 ```
 
-The container’s TensorRT runtime comes from the NGC base image and may differ from the **10.15** source line; TREx is intended for analysis workflows alongside engines you build in this environment. Details: [docs/docker-reference.md — TREx](docs/docker-reference.md#trex-for-model-profiling).
+**`trex-analyze`** re-runs itself with **`env_trex`** when **trex** is not importable from the default interpreter. See [docs/docker-reference.md — TREx](docs/docker-reference.md#trex-for-model-profiling).
+
+The **10.15** tree is **source** for TREx; the TensorRT runtime matches the NGC base image. Details: [docs/docker-reference.md — TREx](docs/docker-reference.md#trex-for-model-profiling).
 
 #### Development (edit mode in Docker)
 

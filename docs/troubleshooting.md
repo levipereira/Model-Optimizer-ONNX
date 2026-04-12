@@ -59,6 +59,42 @@
 
 ---
 
+## TREx CLI import errors (`bin` / `utils`)
+
+### `No module named 'bin'`
+
+**Symptom:** **`trex --help`** fails with **`from bin.trex import main`** → **`No module named 'bin'`**.
+
+**Cause:** **`setup.py`** uses **`trex=bin.trex:main`**, but **`bin/`** has no **`__init__.py`**, so **`setuptools`** does not install **`bin`** as a package.
+
+**Fix (Docker):** Rebuild using [docker/Dockerfile](../docker/Dockerfile) — it runs **`touch …/bin/__init__.py`** before **`install.sh`**.
+
+### `No module named 'utils'`
+
+**Symptom:** After fixing **`bin`**, **`trex --help`** fails inside **`bin/trex.py`** on **`import utils.draw_engine`**.
+
+**Cause:** Upstream **`bin/trex.py`** does **`sys.path.append(…/utils)`** but then imports **`utils.draw_engine`**. The import needs the **trt-engine-explorer** root on **`sys.path`** (so **`utils`** is a package under it), not the **`utils`** directory itself.
+
+**Fix (Docker):** The Dockerfile **`sed`**-patches **`bin/trex.py`** to:
+
+```python
+sys.path.insert(0, os.path.dirname(SCRIPT_DIR))
+```
+
+**Fix (running container / manual install):**
+
+```bash
+TREX_ROOT=/workspace/TREx/tools/experimental/trt-engine-explorer
+touch "${TREX_ROOT}/bin/__init__.py"
+sed -i 's|sys.path.append(os.path.join(os.path.dirname(SCRIPT_DIR), "utils"))|sys.path.insert(0, os.path.dirname(SCRIPT_DIR))|' \
+  "${TREX_ROOT}/bin/trex.py"
+cd "${TREX_ROOT}"
+pip install --no-cache-dir -e ".[notebook]"
+trex --help
+```
+
+---
+
 ## Further detail
 
 See the in-repo skill **modelopt-troubleshooting** (`.cursor/skills/modelopt-troubleshooting/SKILL.md`) for extended diagnostics and environment checks.

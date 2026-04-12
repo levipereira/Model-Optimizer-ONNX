@@ -211,6 +211,31 @@ def default_pipeline_e2e_session_log(*, session_id: str) -> Path:
     return pipeline_e2e_session_root(session_id) / "pipeline.log"
 
 
+def trex_runs_root(session_id: str | None = None) -> Path:
+    """Directory root for ``trex-analyze`` outputs (engine JSON, graphs, compare CSV)."""
+    if (session_id or "").strip():
+        p = pipeline_e2e_session_root(session_id.strip()) / "trex"
+    else:
+        p = artifacts_root() / "trex" / "runs"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def default_trex_analyze_run_dir(
+    *,
+    onnx_stem: str,
+    mode_slug: str,
+    ts: str | None = None,
+    session_id: str | None = None,
+) -> Path:
+    """Per-run folder: ``artifacts/trex/runs/<stem>_<mode>_<ts>/`` or under pipeline session."""
+    ts = ts or run_timestamp()
+    name = "_".join([safe_component(onnx_stem), safe_component(mode_slug, 24), ts])
+    d = trex_runs_root(session_id) / name
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def default_eval_session_log(
     *, engine_stem: str, ts: str | None = None, session_id: str | None = None
 ) -> Path:

@@ -6,11 +6,9 @@ FROM nvcr.io/nvidia/tensorrt:26.02-py3
 ENV CUDNN_LIB_DIR=/usr/lib/x86_64-linux-gnu/
 ENV LD_LIBRARY_PATH="${CUDNN_LIB_DIR}:${LD_LIBRARY_PATH}"
 
-# TREx (TensorRT Engine Explorer): NVIDIA/TensorRT sources + dedicated venv for TensorRT engine
-# profiling / exploration (layer graphs, trtexec JSON, notebooks). Optional; not used by the
-# model-opt-yolo PTQ CLI. Sources track branch release/10.15; see docs/docker-reference.md.
+# TREx: isolated venv (pandas/trex pins) — avoids clashing with model-opt-yolo / cupy / numpy stacks.
 ENV TREX_HOME=/workspace/TREx
-ENV TREX_VENV=/workspace/TREx/env
+ENV TREX_VENV=/workspace/TREx/tools/experimental/trt-engine-explorer/env_trex
 
 WORKDIR /workspace/model-opt-yolo
 
@@ -25,9 +23,8 @@ COPY pyproject.toml README.md LICENSE NOTICE /workspace/model-opt-yolo/
 COPY model_opt_yolo /workspace/model-opt-yolo/model_opt_yolo/
 
 # Avoid upgrading apt-managed wheel/setuptools on this base (can break pip uninstall).
-# graphviz: system package for TREx (trt-engine-explorer) pydot/graphviz backends.
-# python3-venv: ensures `python3 -m venv` works for /workspace/TREx/env across base image variants.
-RUN apt-get update && apt-get install -y --no-install-recommends git graphviz python3-venv \
+# graphviz: TREx (install.sh also runs apt install graphviz). sudo: required by upstream install.sh.
+RUN apt-get update && apt-get install -y --no-install-recommends git graphviz sudo \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir -U pip \
     && pip install --no-cache-dir -U \
@@ -38,15 +35,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends git graphviz py
         onnxruntime-gpu --no-deps \
     && rm -rf /workspace/model-opt-yolo/*
 
-# TREx: shallow clone TensorRT matching release/10.15; editable install of tools/experimental/trt-engine-explorer
-# into ${TREX_VENV} with notebook extras (Jupyter workflows for engine analysis).
+# TREx: install.sh --venv --full in env_trex. model-opt-yolo stays on the image Python; trex-analyze
+# prepends TREX_VENV site-packages so ``import trex`` works without installing the CLI into env_trex.
 ARG TENSORRT_TREX_GIT_REF=release/10.15
 RUN git clone --depth 1 --branch "${TENSORRT_TREX_GIT_REF}" \
         https://github.com/NVIDIA/TensorRT.git "${TREX_HOME}" \
-    && python3 -m venv "${TREX_VENV}" \
-    && "${TREX_VENV}/bin/pip" install --no-cache-dir -U pip setuptools wheel \
-    && "${TREX_VENV}/bin/pip" install --no-cache-dir \
-        -e "${TREX_HOME}/tools/experimental/trt-engine-explorer[notebook]"
+    && touch "${TREX_HOME}/tools/experimental/trt-engine-explorer/bin/__init__.py" \
+    && sed -i 's|sys.path.append(os.path.join(os.path.dirname(SCRIPT_DIR), "utils"))|sys.path.insert(0, os.path.dirname(SCRIPT_DIR))|' \
+        "${TREX_HOME}/tools/experimental/trt-engine-explorer/bin/trex.py" \
+    && bash -c "cd \"${TREX_HOME}/tools/experimental/trt-engine-explorer\" && source ./install.sh --venv --full" \
+    && "${TREX_VENV}/bin/python" -c "import trex; print('trex', trex.__version__)"
 
 # Default: shell in project dir; bind-mount host models/data/artifacts under this path
 CMD ["/bin/bash"]
