@@ -15,7 +15,7 @@ model-opt-yolo --help
 | `trt-bench` | `trtexec` throughput/latency on an **existing** `.engine` (`--loadEngine`; logs under `artifacts/trt_engine/logs/`) |
 | `eval-trt` | COCO mAP on TensorRT engines — **`--output-format`** chooses `onnx_trt` (four tensors), Ultralytics single-tensor, or DeepStream-Yolo |
 | `report-runs` | Aggregate `trt-bench` / `eval-trt` logs into a Markdown report |
-| `pipeline-e2e` | Full run: calib → quantize → build-trt → eval-trt → trt-bench → report (optional `--autotune`, `--quant-matrix`) |
+| `pipeline-e2e` | Full run: calib → FP16 baseline → quantize → build-trt → eval-trt → trt-bench → report (optional `--autotune`, `--quant-matrix`) |
 
 ---
 
@@ -66,8 +66,10 @@ Runs ONNX PTQ via Model Optimizer.
 | `--quantize_mode` | `fp8`, `int8`, `int4` |
 | `--calibration_method` | e.g. `entropy`, `max` (mode-dependent) |
 | `--high_precision_dtype` | Default **`fp32`** in this project (avoids many YOLO `infer_shapes` issues); `fp16` optional |
-| `--autotune` | Q/DQ placement tuning via TensorRT timing (`quick` \| `default` \| `extensive`). Effective for **int8/fp8**; **int4** ignores it. Needs GPU + TensorRT. |
+| `--autotune` | Q/DQ placement tuning via TensorRT timing (`quick` \| `default` \| `extensive`). Use with **int8**; **fp8** + autotune often fails on YOLO-style graphs (operator coverage). **int4** ignores autotune. Needs GPU + TensorRT. |
 | `--suffix` | Output suffix (default `.quant.onnx`) |
+
+**FP8 hardware:** `--quantize_mode fp8` requires a **CUDA GPU with compute capability ≥ 8.9** (FP8 tensor cores). Examples: **Ada Lovelace** (RTX 4090, 4080, 4070, …) — CC 8.9; **Hopper** (H100, H200) — CC 9.0; **Blackwell** (B200, RTX 5090, 5080, …) — CC 10.0+.
 
 ### Pass-through (`--` …)
 
@@ -184,7 +186,8 @@ Runs **`trtexec`** to compile an ONNX file into a TensorRT **`.engine`**. Requir
 | `--mode` | `strongly-typed` (default), `best`, `fp16`, or `fp16-int8` |
 | `--engine-out` | Output `.engine` path (default: `<artifacts>/trt_engine/<onnx-stem>.engine`) |
 | `--timing-cache` | Timing cache file (default: `<engine>.timing.cache`) |
-| `--log-file`, `-v` | Logging (default log under `<artifacts>/trt_engine/logs/build_trt_*.log`) |
+| `--session-id` | Optional id: default logs go under `artifacts/pipeline_e2e/sessions/<id>/trt_engine/logs/` (for `report-runs`; ignored if `--log-file` is set). If omitted, **`SESSION_ID`** is used when set. |
+| `--log-file`, `-v` | Logging (default log under `<artifacts>/trt_engine/logs/build_trt_*.log`, or session dir with `--session-id`) |
 
 ### Modes
 
@@ -237,7 +240,8 @@ Runs **`trtexec`** with **`--loadEngine`** on an **existing** TensorRT **`.engin
 | `--warm-up` | `trtexec --warmUp` in **milliseconds** (default **500**) |
 | `--iterations` | `trtexec --iterations`: minimum inference iterations (default **100**) |
 | `--duration` | `trtexec --duration` in **seconds** (default **60**) |
-| `--log-file`, `-v` | Logging (default: `<artifacts>/trt_engine/logs/trt_bench_<engine-stem>_<timestamp>.log`) |
+| `--session-id` | Optional id: default logs under `artifacts/pipeline_e2e/sessions/<id>/trt_engine/logs/` (for `report-runs`; ignored if `--log-file` is set). If omitted, **`SESSION_ID`** is used when set. |
+| `--log-file`, `-v` | Logging (default: `<artifacts>/trt_engine/logs/trt_bench_<engine-stem>_<timestamp>.log`, or session dir with `--session-id`) |
 
 Built-in `trtexec` flags include **`--useCudaGraph`**, **`--useSpinWait`**, **`--noDataTransfers`**.
 
@@ -276,6 +280,7 @@ You must set **`--output-format`** to match how your `.engine` exposes detection
 | `--img-size` | Hint (overridden by engine input shape if different) |
 | `--conf-thres` | Confidence threshold (default `0.001`) |
 | `--save-json` | Predictions JSON path (default under `artifacts/predictions/`) |
+| `--session-id` | Optional id: default logs under `artifacts/pipeline_e2e/sessions/<id>/predictions/logs/` (for `report-runs`; ignored if `--log-file` is set). If omitted, **`SESSION_ID`** is used when set. |
 | `--log-file`, `-v` | Logging |
 
 Examples:
@@ -298,14 +303,16 @@ model-opt-yolo eval-trt --output-format deepstream_yolo --output-tensor output -
 
 ## `model-opt-yolo pipeline-e2e`
 
-Orchestrates **calib** → **quantize** → **build-trt** → **eval-trt** → **trt-bench** → **report-runs** under a session id (logs under `artifacts/pipeline_e2e/sessions/<id>/`).
+Orchestrates **calib** → **FP16 baseline** on the original ONNX (`build-trt --mode fp16` → **eval-trt** → **trt-bench**) → **quantize** → **build-trt** → **eval-trt** → **trt-bench** (per combo) → **report-runs** under a session id (logs under `artifacts/pipeline_e2e/sessions/<id>/`). The FP16 run uses engine stem `<onnx-stem>.fp16` so the report can compare **FP16 TensorRT** vs **quantized** engines.
 
 | Argument | Notes |
 |----------|--------|
 | `--onnx` | Input FP32 ONNX (**required**) |
-| `--quant-matrix default` \| `all` | One combo vs six (int8/fp8 entropy+max, int4 awq_clip+rtn_dq) |
-| `--autotune` | Same presets as `quantize`; passed to each quantize step — applies only to int8/fp8 combos when using `all` |
+| `--session-id` | Session directory name under `artifacts/pipeline_e2e/sessions/`. Default: **`SESSION_ID`** env var if set, else timestamp. CLI overrides **`SESSION_ID`**. |
+| `--quant-matrix` | **SPEC** string: default **`int8.entropy`**. Keyword **`all`** = full 6-combo grid. **`mode.all`** = both methods for `int8`, `fp8`, or `int4`. **`mode.method`** = one run. Comma-separated = union (e.g. `int8.all,fp8.entropy`). Details: [Workflow](workflow.md). **FP8** combos need a GPU with **CC ≥ 8.9** (see **FP8 hardware** under [`quantize`](#model-opt-yolo-quantize)). |
+| `--autotune` | Same presets as `quantize`. **int8** steps receive `--autotune` when set; **fp8** steps always run **standard PTQ** (no `--autotune` passed). **`int4`** receives the flag but Model Optimizer **ignores** integrated autotune for int4. |
 | `--continue-on-error` | Continue after a failed combo |
+| `--no-fp16-baseline` | Skip the FP16 baseline on the original ONNX (only run PTQ combos) |
 | `--no-report` | Skip final Markdown report |
 
 See `model-opt-yolo pipeline-e2e --help` for image paths, `--input-name`, bench duration, etc.
@@ -316,11 +323,15 @@ See `model-opt-yolo pipeline-e2e --help` for image paths, `--input-name`, bench 
 
 Scans log directories and writes a Markdown report with tables plus **PNG** bar charts (throughput and mAP) next to the `.md` file (`<stem>_throughput_qps.png`, `<stem>_map5095.png`). Used standalone or at the end of `pipeline-e2e`.
 
+The report includes an **Environment & versions** section (current machine): **model-opt-yolo** and **NVIDIA Model Optimizer** pip versions, **TensorRT** (Python bindings and trtexec log line when present), **PyTorch** / **PyTorch CUDA**, **CUDA** as reported by **`nvidia-smi`**, and per-GPU **name**, **driver**, **memory**, **compute capability**, and **SM count** when the driver exposes it.
+
 | Argument | Description |
 |----------|-------------|
-| `--trt-logs-dir` | Folder with `trt_bench_*.log` (default: `artifacts/trt_engine/logs`) |
-| `--eval-logs-dir` | Folder with `eval_*.log` (default: `artifacts/predictions/logs`) |
-| `-o`, `--output` | Output `.md` path (default: `artifacts/reports/trt_eval_report_<timestamp>.md`) |
+| `--session-id` | Shortcut: set `--trt-logs-dir` and `--eval-logs-dir` to `artifacts/pipeline_e2e/sessions/<id>/trt_engine/logs` and `…/predictions/logs` (unless you override them). With `-o` omitted, writes `artifacts/pipeline_e2e/sessions/<id>/e2e_report.md`. Same layout as `pipeline-e2e`. If omitted, **`SESSION_ID`** in the environment is used. **Use this** (or explicit session log paths) so the report sees `pipeline-e2e` outputs — the default without `--session-id` is the **global** flat `artifacts/trt_engine/logs`, not the session folder. |
+| `--merge-global-logs` | Also read global `<artifacts>/trt_engine/logs` and `<artifacts>/predictions/logs` and merge with the primary dirs (newest timestamp per config). `pipeline-e2e` enables this when invoking `report-runs`. |
+| `--trt-logs-dir` | Folder with `trt_bench_*.log` (default without `--session-id`: `<artifacts>/trt_engine/logs` — often **not** where `pipeline-e2e` writes) |
+| `--eval-logs-dir` | Folder with `eval_*.log` (default without `--session-id`: `<artifacts>/predictions/logs`) |
+| `-o`, `--output` | Output `.md` path (default: `artifacts/reports/trt_eval_report_<timestamp>.md`, or `…/sessions/<id>/e2e_report.md` when **`--session-id`** or **`SESSION_ID`** selects a session) |
 
 ---
 
@@ -328,3 +339,4 @@ Scans log directories and writes a Markdown report with tables plus **PNG** bar 
 
 - `MODELOPT_YOLO_LOGLEVEL` or `LOGLEVEL` — `DEBUG`, `INFO`, `WARNING`, `ERROR`
 - `MODELOPT_ARTIFACTS_ROOT` — root for artifacts (default: `<cwd>/artifacts`, created if missing)
+- `SESSION_ID` — default session id for `pipeline-e2e`, `build-trt`, `eval-trt`, `trt-bench`, and `report-runs` when `--session-id` is not passed (CLI wins over the variable)

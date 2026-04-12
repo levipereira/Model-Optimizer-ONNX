@@ -67,8 +67,8 @@ Commands:
   build-trt   TensorRT engine from ONNX (--mode strongly-typed|best|fp16|fp16-int8)
   trt-bench   trtexec throughput/latency on an existing .engine (--loadEngine; no rebuild)
   eval-trt    COCO mAP on TRT engines (EfficientNMS, Ultralytics, or DeepStream-Yolo output)
-  report-runs Scan trt_bench / eval logs → Markdown report (tables + Mermaid charts)
-  pipeline-e2e  End-to-end: calib → quantize [+autotune] → build-trt → eval-trt → trt-bench → report
+  report-runs Scan trt_bench / eval logs → Markdown report (tables + charts); --session-id uses pipeline_e2e/sessions/…
+  pipeline-e2e  End-to-end: calib → FP16 baseline → quantize [+autotune] → build-trt → eval-trt → trt-bench → report
 
 Examples:
   model-opt-yolo download-coco --output-dir data/coco
@@ -77,6 +77,8 @@ Examples:
       --onnx_path models/yolo.onnx
   model-opt-yolo quantize --calibration_data artifacts/calibration/calib_....npy \\
       --onnx_path models/yolo.onnx --autotune default
+  model-opt-yolo quantize --calibration_data artifacts/calibration/calib_....npy \\
+      --onnx_path models/yolo.onnx --profile matmul_fp_exclude
   model-opt-yolo build-trt --onnx artifacts/quantized/model.int8.entropy.quant.onnx
   model-opt-yolo trt-bench --engine artifacts/trt_engine/model.int8.entropy.quant.engine
   model-opt-yolo eval-trt --output-format onnx_trt --engine artifacts/trt_engine/model.int8.entropy.quant.engine

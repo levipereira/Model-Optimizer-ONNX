@@ -47,7 +47,12 @@ from tqdm import tqdm
 
 from model_opt_yolo.io_checks import validate_existing_dir, validate_readable_file
 from model_opt_yolo.logutil import add_logging_arguments, setup_logging
-from model_opt_yolo.session_paths import artifacts_root, default_eval_session_log, run_timestamp
+from model_opt_yolo.session_paths import (
+    artifacts_root,
+    default_eval_session_log,
+    effective_session_id,
+    run_timestamp,
+)
 
 
 def normalize_eval_output_format(fmt: str) -> str:
@@ -544,6 +549,17 @@ def main(argv: list[str] | None = None) -> int:
                         help="Confidence threshold for filtering detections.")
     parser.add_argument("--save-json", type=str, default=None,
                         help="Output predictions JSON path.")
+    parser.add_argument(
+        "--session-id",
+        type=str,
+        default=None,
+        metavar="ID",
+        help=(
+            "Optional pipeline session id: when set (and --log-file is omitted), "
+            "logs go under artifacts/pipeline_e2e/sessions/<id>/predictions/logs/. "
+            "If omitted, SESSION_ID is used when set."
+        ),
+    )
     add_logging_arguments(parser)
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
 
@@ -558,8 +574,11 @@ def main(argv: list[str] | None = None) -> int:
 
     ts = run_timestamp()
     log_path = args.log_file
+    sid = effective_session_id(args.session_id)
     if log_path is None:
-        log_path = str(default_eval_session_log(engine_stem=Path(args.engine).stem, ts=ts))
+        log_path = str(
+            default_eval_session_log(engine_stem=Path(args.engine).stem, ts=ts, session_id=sid)
+        )
 
     setup_logging("eval_trt", log_file=log_path, verbose=args.verbose)
     log = logging.getLogger("eval_trt")

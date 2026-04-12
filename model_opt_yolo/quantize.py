@@ -13,6 +13,13 @@ from pathlib import Path
 
 from model_opt_yolo.io_checks import validate_numpy_array_file, validate_readable_file
 from model_opt_yolo.logutil import add_logging_arguments, setup_logging
+from model_opt_yolo.quantize_profile import (
+    describe_profile,
+    load_quantize_profile,
+    merge_autotune_from_profile,
+    modelopt_args_from_profile,
+    resolve_profile_path,
+)
 from model_opt_yolo.session_paths import (
     artifacts_root,
     default_quantize_session_log,
@@ -107,14 +114,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--autotune",
+        nargs="?",
+        const="quick",
         type=str,
         default=None,
         choices=("quick", "default", "extensive"),
         metavar="PRESET",
         help=(
             "Enable integrated Q/DQ autotune inside the PTQ step. "
-            "Presets: quick, default, extensive. The autotuner runs "
-            "after calibration/Q-DQ insertion and selectively removes "
+            "Presets: quick (default if flag is given without a value), default, extensive. "
+            "The autotuner runs after calibration/Q-DQ insertion and selectively removes "
             "Q/DQ nodes that hurt TensorRT latency. Requires GPU + TensorRT."
         ),
     )
@@ -123,6 +132,17 @@ def main(argv: list[str] | None = None) -> int:
         type=str,
         default=".quant.onnx",
         help="Output filename suffix (default: .quant.onnx).",
+    )
+    parser.add_argument(
+        "--profile",
+        type=str,
+        default=None,
+        metavar="NAME_OR_PATH",
+        help=(
+            "YAML profile (built-in name or path) with modelopt include/exclude rules. "
+            "Shipped examples: ultralytics_yolo26_flexible, matmul_fp_exclude. "
+            "See model_opt_yolo/profiles/*.yaml. Requires PyYAML."
+        ),
     )
     parser.add_argument(
         "passthrough",
@@ -140,6 +160,19 @@ def main(argv: list[str] | None = None) -> int:
         if pt and pt[0] == "--":
             pt = pt[1:]
         extra.extend(pt)
+
+    profile_data = None
+    profile_path: Path | None = None
+    if args.profile:
+        profile_path = resolve_profile_path(args.profile)
+        profile_data = load_quantize_profile(profile_path)
+        mo_args = modelopt_args_from_profile(profile_data, profile_path=profile_path)
+        # Profile first, then explicit passthrough (user can override ordering by repeating flags).
+        extra = mo_args + extra
+        args.autotune = merge_autotune_from_profile(
+            cli_autotune=args.autotune,
+            profile=profile_data,
+        )
 
     if args.onnx_path and args.onnx_glob:
         print("Use either --onnx_path or --onnx_glob, not both.", file=sys.stderr)
@@ -191,6 +224,9 @@ def main(argv: list[str] | None = None) -> int:
 
     setup_logging("quantize_onnx", log_file=log_path, verbose=args.verbose)
     log = logging.getLogger("quantize_onnx")
+
+    if profile_data is not None and profile_path is not None:
+        log.info("Quantization profile: %s", describe_profile(profile_data, profile_path))
 
     os.makedirs(output_dir, exist_ok=True)
     log.info("Output directory: %s", output_dir)

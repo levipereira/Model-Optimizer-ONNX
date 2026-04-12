@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end PTQ pipeline: calib → quantize (with optional autotune) → build-trt → eval-trt → trt-bench → report."""
+"""End-to-end PTQ pipeline: calib → optional FP16 baseline on original ONNX → quantize → build-trt → eval-trt → trt-bench → report."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from model_opt_yolo.session_paths import (
     artifacts_root,
     default_calib_npy_path,
     default_pipeline_e2e_session_log,
+    effective_session_id,
     pipeline_e2e_session_eval_logs,
     pipeline_e2e_session_quant_logs,
     pipeline_e2e_session_root,
@@ -34,6 +35,59 @@ QUANT_COMBOS_ALL: list[tuple[str, str]] = [
     ("int4", "rtn_dq"),
 ]
 
+_METHODS_FOR_MODE: dict[str, tuple[str, ...]] = {
+    "int8": ("entropy", "max"),
+    "fp8": ("entropy", "max"),
+    "int4": ("awq_clip", "rtn_dq"),
+}
+
+
+def parse_quant_matrix_spec(spec: str) -> list[tuple[str, str]]:
+    """Expand ``--quant-matrix`` into an ordered, de-duplicated list of (mode, calibration_method).
+
+    * ``all`` — full grid (same as ``int8.all,fp8.all,int4.all``).
+    * ``<mode>.all`` — both calibration methods for ``int8``, ``fp8``, or ``int4``.
+    * ``<mode>.<method>`` — one combo (e.g. ``int8.entropy``, ``int4.rtn_dq``).
+    * Comma-separated — union of the above (e.g. ``int8.all,fp8.entropy``).
+    """
+    raw = spec.strip()
+    if not raw:
+        raise ValueError("--quant-matrix must not be empty")
+    if raw == "all":
+        return list(QUANT_COMBOS_ALL)
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    if not parts:
+        raise ValueError("--quant-matrix must not be empty")
+    out: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for part in parts:
+        if "." not in part:
+            raise ValueError(
+                f"invalid quant-matrix fragment {part!r}; use mode.method, mode.all, or the keyword all"
+            )
+        mode, rest = part.split(".", 1)
+        mode_l = mode.strip().lower()
+        rest_l = rest.strip().lower()
+        if mode_l not in _METHODS_FOR_MODE:
+            raise ValueError(
+                f"unknown mode {mode!r} in {part!r}; expected int8, fp8, or int4"
+            )
+        valid = _METHODS_FOR_MODE[mode_l]
+        if rest_l == "all":
+            chunk = [(mode_l, m) for m in valid]
+        else:
+            if rest_l not in valid:
+                raise ValueError(
+                    f"unknown method {rest!r} for mode {mode_l}; "
+                    f"expected one of {list(valid)} or all"
+                )
+            chunk = [(mode_l, rest_l)]
+        for pair in chunk:
+            if pair not in seen:
+                seen.add(pair)
+                out.append(pair)
+    return out
+
 
 def _quantize_output_path(
     *,
@@ -52,6 +106,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Run the full ONNX PTQ + TensorRT workflow: build calibration data, "
+            "optionally TensorRT FP16 on the original ONNX (baseline), then "
             "quantize with optional integrated autotune (one or all mode/method pairs), "
             "build engine, COCO eval, trtexec bench, then "
             "emit a Markdown report (same aggregation as ``report-runs``). "
@@ -119,41 +174,32 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--autotune",
+        nargs="?",
+        const="quick",
         type=str,
         default=None,
         choices=("quick", "default", "extensive"),
         metavar="PRESET",
         help=(
             "Enable integrated Q/DQ autotune inside the quantize step. "
-            "Presets: quick, default, extensive. Autotune runs after "
-            "calibration/Q-DQ insertion and selectively removes Q/DQ nodes "
-            "that hurt TensorRT latency. Omit to skip autotune."
+            "Presets: quick (default if flag is given without a value), default, extensive. "
+            "Autotune runs after calibration/Q-DQ insertion and selectively removes Q/DQ nodes "
+            "that hurt TensorRT latency. Omit for no autotune. "
+            "FP8 subprocesses never receive --autotune (Model Optimizer limitation); "
+            "int8/int4 steps get --autotune when this flag is set."
         ),
     )
     parser.add_argument(
         "--quant-matrix",
         type=str,
-        default="default",
-        choices=("default", "all"),
+        default="int8.entropy",
+        metavar="SPEC",
         help=(
-            "default: single PTQ run (--quantize-mode / --calibration-method, default int8+entropy). "
-            "all: run all supported mode/method pairs (6 runs; long)."
-        ),
-    )
-    parser.add_argument(
-        "--quantize-mode",
-        type=str,
-        default=None,
-        choices=("fp8", "int8", "int4"),
-        help="When --quant-matrix default: quantization precision (default: int8).",
-    )
-    parser.add_argument(
-        "--calibration-method",
-        type=str,
-        default=None,
-        help=(
-            "When --quant-matrix default: max|entropy (fp8/int8) or awq_clip|rtn_dq (int4). "
-            "Default: entropy for fp8/int8, rtn_dq for int4."
+            "Which PTQ combos to run. Keyword ``all`` = full 6-run grid. "
+            "Otherwise use ``mode.method``, ``mode.all``, or comma-separated unions "
+            "(e.g. int8.entropy, fp8.all, int8.all,fp8.entropy). "
+            "Modes: int8, fp8, int4. Methods: int8/fp8 → entropy|max; int4 → awq_clip|rtn_dq. "
+            "Default: int8.entropy (single run)."
         ),
     )
     parser.add_argument(
@@ -162,6 +208,16 @@ def main(argv: list[str] | None = None) -> int:
         default="fp32",
         choices=("fp32", "fp16", "bf16"),
         help="Passed to quantize (default: fp32).",
+    )
+    parser.add_argument(
+        "--quantize-profile",
+        type=str,
+        default=None,
+        metavar="NAME_OR_PATH",
+        help=(
+            "Optional YAML profile passed to each quantize step as --profile "
+            "(include/exclude op types, nodes, etc.). See model_opt_yolo/profiles/."
+        ),
     )
     parser.add_argument(
         "--bench-duration",
@@ -181,6 +237,15 @@ def main(argv: list[str] | None = None) -> int:
         "--continue-on-error",
         action="store_true",
         help="If one quant/config step fails, log and continue with remaining combos.",
+    )
+    parser.add_argument(
+        "--no-fp16-baseline",
+        action="store_true",
+        help=(
+            "Skip TensorRT FP16 baseline on the original ONNX (--mode fp16): "
+            "build-trt → eval-trt → trt-bench before the PTQ loop. "
+            "The baseline compares full-precision export vs quantized engines in report-runs."
+        ),
     )
     parser.add_argument(
         "--no-report",
@@ -203,13 +268,19 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         metavar="ID",
         help=(
-            "Unique id for this run (default: auto YYYYMMDD-HHMMSS). "
+            "Unique id for this run (default: SESSION_ID env var if set, else auto YYYYMMDD-HHMMSS). "
             "All step logs and the Markdown report go under artifacts/pipeline_e2e/sessions/<id>/ "
-            "so report-runs does not merge logs from older runs."
+            "so report-runs does not merge logs from older runs. CLI overrides SESSION_ID."
         ),
     )
     add_logging_arguments(parser)
-    args = parser.parse_args(argv if argv is None else argv)
+    args = parser.parse_args(argv if argv is not None else sys.argv[1:])
+
+    try:
+        combos = parse_quant_matrix_spec(args.quant_matrix)
+    except ValueError as exc:
+        print(f"Invalid --quant-matrix: {exc}", file=sys.stderr)
+        return 2
 
     err = validate_readable_file(args.onnx, label="ONNX model")
     if err:
@@ -217,7 +288,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     onnx_path = Path(args.onnx).expanduser().resolve()
-    session_id = (args.session_id or "").strip() or run_timestamp()
+    session_id = effective_session_id(args.session_id) or run_timestamp()
     session_root = pipeline_e2e_session_root(session_id)
     manifest = {
         "session_id": session_id,
@@ -242,22 +313,19 @@ def main(argv: list[str] | None = None) -> int:
     log.info("Artifacts root: %s", artifacts_root())
     log.info("Orchestrator log: %s", log_path)
 
-    def _default_calib_method_for_mode(qm: str) -> str:
-        return "rtn_dq" if qm == "int4" else "entropy"
-
-    def _resolve_combos() -> list[tuple[str, str]]:
-        if args.quant_matrix == "all":
-            return list(QUANT_COMBOS_ALL)
-        qm = args.quantize_mode or "int8"
-        cm = args.calibration_method or _default_calib_method_for_mode(qm)
-        return [(qm, cm)]
-
-    combos = _resolve_combos()
+    plan_has_fp8 = any(qm == "fp8" for qm, _ in combos)
     log.info(
         "Quantization plan: %s (%d combo(s))",
         ", ".join(f"{a}.{b}" for a, b in combos),
         len(combos),
     )
+
+    if args.autotune and plan_has_fp8:
+        log.warning(
+            "With --autotune: int8 and int4 quantize steps will pass --autotune=%s. "
+            "FP8 steps run standard PTQ only (no --autotune on the quantize subprocess).",
+            args.autotune,
+        )
 
     # --- calib (fixed output path so later steps know the exact .npy) ---
     from model_opt_yolo.calib_prep import main as calib_main
@@ -290,9 +358,15 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     log.info("Using calibration data: %s", calib_npy)
 
-    # --- quantize (with optional integrated autotune) ---
+    # --- quantize (optional --autotune; fp8 never receives --autotune) ---
     if args.autotune:
-        log.info("Autotune enabled (preset: %s) — integrated into quantize step.", args.autotune)
+        if plan_has_fp8:
+            log.info(
+                "Autotune preset %s — passed to int8/int4 quantize; fp8 quantize runs without --autotune (standard PTQ).",
+                args.autotune,
+            )
+        else:
+            log.info("Autotune enabled (preset: %s) — integrated into quantize step.", args.autotune)
     else:
         log.info("Autotune not requested; quantizing input ONNX directly.")
 
@@ -311,6 +385,98 @@ def main(argv: list[str] | None = None) -> int:
     session_quant_logs = pipeline_e2e_session_quant_logs(session_id)
 
     any_fail = False
+
+    # --- FP16 baseline: original ONNX + trtexec --fp16 (same session logs as PTQ runs) ---
+    if not args.no_fp16_baseline:
+        fp16_ts = run_timestamp()
+        fp16_stem = f"{onnx_path.stem}.fp16"
+        engine_fp16 = trt_engine_dir() / f"{fp16_stem}.engine"
+        build_log_fp16 = session_trt_logs / f"build_trt_{safe_component(fp16_stem)}_{fp16_ts}.log"
+        log.info("========== FP16 baseline (original ONNX, --mode fp16) ==========")
+        b_fp16 = [
+            "--onnx",
+            str(onnx_path),
+            "--img-size",
+            str(args.img_size),
+            "--input-name",
+            args.input_name,
+            "--mode",
+            "fp16",
+            "--engine-out",
+            str(engine_fp16),
+            "--log-file",
+            str(build_log_fp16),
+            *verbose_flag,
+        ]
+        log.info(
+            "Starting build-trt FP16 baseline (engine → %s; log → %s)",
+            engine_fp16.resolve(),
+            build_log_fp16.resolve(),
+        )
+        rc = build_trt_main(b_fp16)
+        if rc != 0:
+            log.error("build-trt FP16 baseline failed (exit %d)", rc)
+            any_fail = True
+            if not args.continue_on_error:
+                return rc
+        elif not engine_fp16.is_file():
+            log.error("FP16 baseline engine missing after build: %s", engine_fp16)
+            any_fail = True
+            if not args.continue_on_error:
+                return 1
+        else:
+            log.info(
+                "FP16 build-trt OK: %s (%d B)",
+                engine_fp16.resolve(),
+                engine_fp16.stat().st_size,
+            )
+            eval_log_fp16 = session_eval_logs / f"eval_{safe_component(fp16_stem)}_{fp16_ts}.log"
+            e_fp16 = [
+                "--engine",
+                str(engine_fp16),
+                "--output-format",
+                args.output_format,
+                "--images",
+                str(images_resolved),
+                "--annotations",
+                str(Path(args.annotations).expanduser().resolve()),
+                "--img-size",
+                str(args.img_size),
+                "--log-file",
+                str(eval_log_fp16),
+                *verbose_flag,
+            ]
+            log.info("Starting eval-trt FP16 baseline (log → %s)", eval_log_fp16.resolve())
+            rc = eval_trt_main(e_fp16)
+            if rc != 0:
+                log.error("eval-trt FP16 baseline failed (exit %d)", rc)
+                any_fail = True
+                if not args.continue_on_error:
+                    return rc
+            else:
+                log.info("FP16 eval-trt OK (log → %s)", eval_log_fp16.resolve())
+                bench_log_fp16 = session_trt_logs / f"trt_bench_{safe_component(fp16_stem)}_{fp16_ts}.log"
+                tb_fp16 = [
+                    "--engine",
+                    str(engine_fp16),
+                    "--duration",
+                    str(args.bench_duration),
+                    "--warm-up",
+                    str(args.bench_warm_up),
+                    "--log-file",
+                    str(bench_log_fp16),
+                    *verbose_flag,
+                ]
+                log.info("Starting trt-bench FP16 baseline (log → %s)", bench_log_fp16.resolve())
+                rc = bench_trt_main(tb_fp16)
+                if rc != 0:
+                    log.error("trt-bench FP16 baseline failed (exit %d)", rc)
+                    any_fail = True
+                    if not args.continue_on_error:
+                        return rc
+                else:
+                    log.info("FP16 trt-bench OK (log → %s)", bench_log_fp16.resolve())
+
     for qm, cm in combos:
         tag = f"{qm}.{cm}"
         step_ts = run_timestamp()
@@ -340,10 +506,24 @@ def main(argv: list[str] | None = None) -> int:
             str(q_log),
             *verbose_flag,
         ]
-        if args.autotune:
+        pass_autotune_flag = bool(args.autotune) and qm != "fp8"
+        if pass_autotune_flag:
             q_argv.extend(["--autotune", args.autotune])
-        autotune_label = f" +autotune={args.autotune}" if args.autotune else ""
-        log.info("Step: quantize%s → %s (log: %s)", autotune_label, q_out.name, q_log)
+        if args.quantize_profile:
+            q_argv.extend(["--profile", args.quantize_profile])
+        if args.autotune:
+            if qm == "fp8":
+                autotune_label = " (fp8: standard PTQ, no --autotune)"
+            else:
+                autotune_label = f" +autotune={args.autotune}"
+        else:
+            autotune_label = ""
+        log.info(
+            "Starting quantize%s: ONNX out → %s (not under session dir); session log → %s",
+            autotune_label,
+            q_out.resolve(),
+            q_log.resolve(),
+        )
         rc = quantize_main(q_argv)
         if rc != 0:
             log.error("quantize failed for %s (exit %d)", tag, rc)
@@ -357,6 +537,12 @@ def main(argv: list[str] | None = None) -> int:
             if args.continue_on_error:
                 continue
             return 1
+        log.info(
+            "quantize OK: %s (%d B); session log exists=%s",
+            q_out.resolve(),
+            q_out.stat().st_size,
+            q_log.is_file(),
+        )
 
         eng_stem = q_out.stem
         build_log = session_trt_logs / f"build_trt_{safe_component(eng_stem)}_{step_ts}.log"
@@ -373,7 +559,12 @@ def main(argv: list[str] | None = None) -> int:
             str(build_log),
             *verbose_flag,
         ]
-        log.info("Step: build-trt (%s.engine) log: %s", eng_stem, build_log)
+        engine_path = trt_engine_dir() / f"{eng_stem}.engine"
+        log.info(
+            "Starting build-trt: engine → %s (under artifacts/trt_engine); log → %s",
+            engine_path.resolve(),
+            build_log.resolve(),
+        )
         rc = build_trt_main(b_argv)
         if rc != 0:
             log.error("build-trt failed for %s (exit %d)", tag, rc)
@@ -382,13 +573,17 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             return rc
 
-        engine_path = trt_engine_dir() / f"{eng_stem}.engine"
         if not engine_path.is_file():
             log.error("Engine not found after build: %s", engine_path)
             any_fail = True
             if args.continue_on_error:
                 continue
             return 1
+        log.info(
+            "build-trt OK: %s (%d B)",
+            engine_path.resolve(),
+            engine_path.stat().st_size,
+        )
 
         eval_log = session_eval_logs / f"eval_{safe_component(eng_stem)}_{step_ts}.log"
         e_argv = [
@@ -406,7 +601,7 @@ def main(argv: list[str] | None = None) -> int:
             str(eval_log),
             *verbose_flag,
         ]
-        log.info("Step: eval-trt (log: %s)", eval_log)
+        log.info("Starting eval-trt (log → %s)", eval_log.resolve())
         rc = eval_trt_main(e_argv)
         if rc != 0:
             log.error("eval-trt failed for %s (exit %d)", tag, rc)
@@ -414,6 +609,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.continue_on_error:
                 continue
             return rc
+        log.info("eval-trt OK (log → %s)", eval_log.resolve())
 
         bench_log = session_trt_logs / f"trt_bench_{safe_component(eng_stem)}_{step_ts}.log"
         tb_argv = [
@@ -427,7 +623,7 @@ def main(argv: list[str] | None = None) -> int:
             str(bench_log),
             *verbose_flag,
         ]
-        log.info("Step: trt-bench (log: %s)", bench_log)
+        log.info("Starting trt-bench (log → %s)", bench_log.resolve())
         rc = bench_trt_main(tb_argv)
         if rc != 0:
             log.error("trt-bench failed for %s (exit %d)", tag, rc)
@@ -435,6 +631,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.continue_on_error:
                 continue
             return rc
+        log.info("trt-bench OK (log → %s)", bench_log.resolve())
 
     if any_fail and args.continue_on_error:
         log.warning("One or more steps failed (--continue-on-error); check logs above.")
@@ -455,6 +652,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     rc = report_main(
         [
+            "--session-id",
+            session_id,
+            "--merge-global-logs",
             "--trt-logs-dir",
             str(session_trt_logs.resolve()),
             "--eval-logs-dir",

@@ -26,6 +26,34 @@ Set inside the Dockerfile for Model Optimizer compatibility with TensorRT images
 |----------|---------|---------|
 | `MODELOPT_GIT_REF` | `main` | Git ref for `nvidia-modelopt[onnx] @ git+https://github.com/NVIDIA/Model-Optimizer.git@...` |
 | `ORT_CUDA13_INDEX` | Azure DevOps **ort-cuda-13-nightly** PyPI simple URL | Source for `onnxruntime-gpu` rebuild |
+| `TENSORRT_TREX_GIT_REF` | `release/10.15` | Git branch (or tag) for the shallow [NVIDIA/TensorRT](https://github.com/NVIDIA/TensorRT) clone used by TREx (TensorRT Engine Explorer) |
+
+---
+
+## TREx for model profiling
+
+The image includes an optional **TensorRT engine profiling** stack, separate from the **`model-opt-yolo`** Python environment:
+
+| Path | Contents |
+|------|----------|
+| **`/workspace/TREx`** | Shallow git clone of [NVIDIA/TensorRT](https://github.com/NVIDIA/TensorRT) at **`TENSORRT_TREX_GIT_REF`** (default **`release/10.15`**). |
+| **`/workspace/TREx/env`** | Python **venv** with [TREx](https://github.com/NVIDIA/TensorRT/tree/release/10.15/tools/experimental/trt-engine-explorer) (*trt-engine-explorer*) installed in editable mode with **`[notebook]`** extras (Jupyter, plotting, and related dependencies per upstream `setup.py`). |
+| **`/workspace/TREx/tools/experimental/trt-engine-explorer/`** | TREx package root: notebooks (`notebooks/`), `utils/` (e.g. engine processing helpers), and upstream `README.md`. |
+
+**Purpose:** analyze TensorRT **`.engine`** plans and profiling artifacts (layers, timing, comparisons). This matches the experimental **TensorRT Engine Explorer** workflow described in NVIDIA’s documentation and blog posts; it is **not** required for ONNX PTQ, calibration, **`quantize`**, or **`build-trt`** inside this project.
+
+**Usage (inside the container):**
+
+```bash
+source /workspace/TREx/env/bin/activate
+trex --help
+```
+
+Do **not** prepend **`/workspace/TREx/env/bin`** to the global `PATH` in the image: the default shell should keep using the base environment where **`model-opt-yolo`** is installed. Activate the TREx venv only when you run TREx or its notebooks.
+
+**Version note:** the NGC base image ships a fixed **TensorRT** runtime (see [Base image](#base-image)). The **`release/10.15`** tree provides **source** and **TREx** tooling aligned with that product line; minor differences from the container’s preinstalled TensorRT Python wheel are possible. For engine analysis, use **`trtexec`** and artifacts produced in the same container when troubleshooting.
+
+**Build-time dependencies:** the Dockerfile installs **`graphviz`** (apt) for TREx graph backends (`pydot` / Graphviz) and **`python3-venv`** so **`python3 -m venv`** can create **`/workspace/TREx/env`** reliably.
 
 ---
 

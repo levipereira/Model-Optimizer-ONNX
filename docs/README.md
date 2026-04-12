@@ -12,7 +12,7 @@
 | [Workflow](workflow.md) | Pipeline steps, **autotune** (`quantize --autotune`), **`pipeline-e2e`** / `--quant-matrix` |
 | [CLI reference](cli-reference.md) | `model-opt-yolo` subcommands; **`eval-trt`** needs **`--output-format`** (`onnx_trt`, `ultralytics`, or `deepstream_yolo`; `efficient_nms` aliases `onnx_trt`) |
 | [Artifacts & logging](artifacts-and-logging.md) | `artifacts/` layout, session naming, log files |
-| [Docker reference](docker-reference.md) | Base image, build args, environment variables |
+| [Docker reference](docker-reference.md) | Base image, build args, environment variables, optional **TREx** (`/workspace/TREx`, engine profiling) |
 | [Troubleshooting](troubleshooting.md) | Common errors (CUDA/ORT, TRT, dynamic shapes) |
 | [License & attribution](license-and-attribution.md) | Apache 2.0, third-party components |
 

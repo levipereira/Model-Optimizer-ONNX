@@ -17,7 +17,12 @@ from pathlib import Path
 
 from model_opt_yolo.io_checks import validate_readable_file
 from model_opt_yolo.logutil import add_logging_arguments, setup_logging
-from model_opt_yolo.session_paths import default_build_trt_session_log, run_timestamp, trt_engine_dir
+from model_opt_yolo.session_paths import (
+    default_build_trt_session_log,
+    effective_session_id,
+    run_timestamp,
+    trt_engine_dir,
+)
 
 
 def _shape(batch: int, img_size: int) -> str:
@@ -134,6 +139,18 @@ def main(argv: list[str] | None = None) -> int:
         help="Timing cache path (default: <engine>.timing.cache).",
     )
     parser.add_argument(
+        "--session-id",
+        type=str,
+        default=None,
+        metavar="ID",
+        help=(
+            "Optional pipeline session id: when set (and --log-file is omitted), "
+            "logs go under artifacts/pipeline_e2e/sessions/<id>/trt_engine/logs/. "
+            "If omitted, the SESSION_ID environment variable is used when set. "
+            "``report-runs --session-id`` or SESSION_ID picks up the same logs."
+        ),
+    )
+    parser.add_argument(
         "passthrough",
         nargs=argparse.REMAINDER,
         help="Extra args after -- forwarded to trtexec (append; use to override or add flags).",
@@ -167,8 +184,9 @@ def main(argv: list[str] | None = None) -> int:
 
     ts = run_timestamp()
     log_path = args.log_file
+    sid = effective_session_id(args.session_id)
     if log_path is None:
-        log_path = str(default_build_trt_session_log(onnx_stem=stem, ts=ts))
+        log_path = str(default_build_trt_session_log(onnx_stem=stem, ts=ts, session_id=sid))
 
     setup_logging("build_trt", log_file=log_path, verbose=args.verbose)
     log = logging.getLogger("build_trt")

@@ -25,6 +25,21 @@ def artifacts_root() -> Path:
     return root
 
 
+SESSION_ID_ENV_VAR = "SESSION_ID"
+
+
+def effective_session_id(cli_session_id: str | None) -> str | None:
+    """Resolve pipeline session id: non-empty ``--session-id`` wins, else :envvar:`SESSION_ID`.
+
+    Used by ``build-trt``, ``eval-trt``, ``trt-bench``, ``report-runs``, and ``pipeline-e2e``
+    so a shell ``export SESSION_ID=…`` applies to every command unless overridden on the CLI.
+    """
+    cli = (cli_session_id or "").strip()
+    if cli:
+        return cli
+    return (os.environ.get(SESSION_ID_ENV_VAR, "").strip() or None)
+
+
 def run_timestamp() -> str:
     """Local time ``YYYYMMDD-HHMMSS`` (unique per second per machine)."""
     return datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -78,20 +93,38 @@ def trt_engine_logs_dir() -> Path:
     return artifacts_root() / "trt_engine" / "logs"
 
 
-def default_build_trt_session_log(*, onnx_stem: str, ts: str | None = None) -> Path:
-    """Log file for ``model-opt-yolo build-trt`` when ``--log-file`` is omitted."""
+def default_build_trt_session_log(
+    *, onnx_stem: str, ts: str | None = None, session_id: str | None = None
+) -> Path:
+    """Log file for ``model-opt-yolo build-trt`` when ``--log-file`` is omitted.
+
+    With *session_id*, logs go under ``pipeline_e2e/sessions/<id>/trt_engine/logs/`` so
+    ``report-runs --session-id <id>`` picks them up alongside manual runs.
+    """
     ts = ts or run_timestamp()
-    trt_engine_logs_dir().mkdir(parents=True, exist_ok=True)
+    log_dir = (
+        pipeline_e2e_session_trt_logs(session_id)
+        if (session_id or "").strip()
+        else trt_engine_logs_dir()
+    )
+    log_dir.mkdir(parents=True, exist_ok=True)
     name = "_".join(["build_trt", safe_component(onnx_stem), ts])
-    return trt_engine_logs_dir() / f"{name}.log"
+    return log_dir / f"{name}.log"
 
 
-def default_trt_bench_session_log(*, engine_stem: str, ts: str | None = None) -> Path:
+def default_trt_bench_session_log(
+    *, engine_stem: str, ts: str | None = None, session_id: str | None = None
+) -> Path:
     """Log file for ``model-opt-yolo trt-bench`` when ``--log-file`` is omitted."""
     ts = ts or run_timestamp()
-    trt_engine_logs_dir().mkdir(parents=True, exist_ok=True)
+    log_dir = (
+        pipeline_e2e_session_trt_logs(session_id)
+        if (session_id or "").strip()
+        else trt_engine_logs_dir()
+    )
+    log_dir.mkdir(parents=True, exist_ok=True)
     name = "_".join(["trt_bench", safe_component(engine_stem), ts])
-    return trt_engine_logs_dir() / f"{name}.log"
+    return log_dir / f"{name}.log"
 
 
 def default_quantize_session_log(
@@ -178,10 +211,17 @@ def default_pipeline_e2e_session_log(*, session_id: str) -> Path:
     return pipeline_e2e_session_root(session_id) / "pipeline.log"
 
 
-def default_eval_session_log(*, engine_stem: str, ts: str | None = None) -> Path:
+def default_eval_session_log(
+    *, engine_stem: str, ts: str | None = None, session_id: str | None = None
+) -> Path:
     ts = ts or run_timestamp()
-    predictions_logs_dir().mkdir(parents=True, exist_ok=True)
+    log_dir = (
+        pipeline_e2e_session_eval_logs(session_id)
+        if (session_id or "").strip()
+        else predictions_logs_dir()
+    )
+    log_dir.mkdir(parents=True, exist_ok=True)
     name = "_".join(["eval", safe_component(engine_stem), ts])
-    return predictions_logs_dir() / f"{name}.log"
+    return log_dir / f"{name}.log"
 
 

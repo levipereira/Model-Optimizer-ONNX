@@ -45,13 +45,17 @@ Please read the pinned **[welcome announcement](https://github.com/levipereira/M
 
 ## Pipeline
 
-**Fastest path:** **`model-opt-yolo pipeline-e2e --onnx models/…onnx`** — runs calib through bench and writes a **Markdown report** (session logs under `artifacts/pipeline_e2e/sessions/…`). See [workflow](docs/workflow.md).
+**Training and ONNX export are not part of this repo.** Produce checkpoints and **export to ONNX in your original training or deployment framework** (PyTorch, Ultralytics, DeepStream-Yolo exporters, etc.). Commands that load weights (e.g. `.pt`) and write `.onnx` — including flags for dynamic axes, opset, graph simplification, and output tensor layout — are **external** to **Model-Optimizer-YOLO**: they are **not** implemented here and **not** run by `model-opt-yolo`. This project assumes you already have **`models/*.onnx`** that match how you will calibrate and evaluate. The diagram below shows **only the logical flow** so names and preprocessing stay consistent end-to-end.
 
-Manual PTQ path: **calib** → **quantize** → **build-trt** → **eval-trt** (optional **`--autotune`** on `quantize`). For a **report** from existing logs, use **`report-runs`**. You need images + annotations and **`calib.npy`** from **`calib`**.
+**Fastest path:** **`model-opt-yolo pipeline-e2e --onnx models/…onnx`** — runs **calib**, a **TensorRT FP16 baseline** on the original ONNX (for side-by-side comparison with quantized engines in the report), then each **quantize → build-trt → eval-trt → trt-bench** combo, and **`report-runs`** (session logs under `artifacts/pipeline_e2e/sessions/…`). See [workflow](docs/workflow.md).
+
+**Manual PTQ path:** **calib** → **quantize** → **build-trt** → **eval-trt** → **trt-bench** (optional **`--autotune`** on `quantize`). You can **compare FP16 vs quantized** by also running **`build-trt --mode fp16`** on the original ONNX and then **eval-trt** / **trt-bench** on that engine (see [workflow](docs/workflow.md)). For a **report**, use **`report-runs`**, or set **`export SESSION_ID=…`** once (or pass the same **`--session-id`** on each command) so **`build-trt`**, **`eval-trt`**, **`trt-bench`**, and **`report-runs`** use one session directory.
 
 ```mermaid
 flowchart TD
-  A[PyTorch weights — .pt] --> B[Export to ONNX<br/>--dynamic · --simplify · opset ≥ 18]
+  subgraph EXT["Outside this repository"]
+    A[Trained weights] --> B["Export to ONNX<br/>(CLI / API / Script .py)"]
+  end
   B --> C[models/*.onnx]
   C --> H[download-coco]
   H --> I[model-opt-yolo calib]
@@ -71,17 +75,20 @@ flowchart TD
 
 Run **inside the container** (or locally after `pip install -e .`):
 
-- **One command (calib → engine → eval → bench + report):**  
-  `model-opt-yolo pipeline-e2e --onnx models/your.onnx` — add `--img-size`, `--input-name`, `--output-format` as needed ([workflow](docs/workflow.md)).
+- **One command (calib → FP16 baseline → PTQ combos → report):**  
+  `model-opt-yolo pipeline-e2e --onnx models/your.onnx` — add `--img-size`, `--input-name`, `--output-format` as needed; use **`--no-fp16-baseline`** only if you do not want the FP16 comparison row ([workflow](docs/workflow.md)).
 
 **Or step by step:**
 
-1. ONNX under `models/` (match your production export).
+1. **ONNX under `models/`** — already exported from your stack (see scope above); match letterbox, input name, and outputs to what you will use in production.
 2. `model-opt-yolo download-coco --output-dir data/coco`
 3. `model-opt-yolo calib --images_dir data/coco/val2017 --calibration_data_size 500 --img_size 640`
 4. `model-opt-yolo quantize --calibration_data artifacts/calibration/…npy --onnx_path models/your.onnx` (optional: `--autotune default`)
-5. `model-opt-yolo build-trt --onnx artifacts/quantized/your…quant.onnx --img-size 640` → `artifacts/trt_engine/<stem>.engine` (default `--mode strongly-typed`; see [docs](docs/cli-reference.md#model-opt-yolo-build-trt))
-6. `model-opt-yolo eval-trt --output-format onnx_trt --engine … --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json` (pick `ultralytics` / `deepstream_yolo` if needed — table below)
+5. **Optional FP16 reference:** `model-opt-yolo build-trt --onnx models/your.onnx --mode fp16 --engine-out artifacts/trt_engine/<stem>.fp16.engine` then **`eval-trt`** / **`trt-bench`** on that engine (use **`SESSION_ID`** or **`--session-id`** on each command for a unified report).
+6. `model-opt-yolo build-trt --onnx artifacts/quantized/your…quant.onnx --img-size 640` → `artifacts/trt_engine/<stem>.engine` (default `--mode strongly-typed`; see [docs](docs/cli-reference.md#model-opt-yolo-build-trt))
+7. `model-opt-yolo eval-trt --output-format onnx_trt --engine … --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json` (pick `ultralytics` / `deepstream_yolo` if needed — table below)
+8. `model-opt-yolo trt-bench --engine …` for throughput logs used by **`report-runs`**
+9. `model-opt-yolo report-runs` (with **`SESSION_ID`** set) **or** `--session-id` / `--trt-logs-dir` / `--eval-logs-dir` as needed
 
 CLI details: [docs/cli-reference.md](docs/cli-reference.md) · optional docs site: `pip install -e ".[docs]" && mkdocs serve` ([`mkdocs.yml`](mkdocs.yml))
 
@@ -174,6 +181,18 @@ Inside the container, the working directory is **`/workspace/model-opt-yolo`**. 
 Change `DATA_ROOT` to another disk or folder if you want.
 
 See [docs/docker-reference.md](docs/docker-reference.md) for build args and persistence details.
+
+#### TensorRT Engine Explorer (TREx) — model profiling (optional)
+
+The Docker image clones the [NVIDIA TensorRT](https://github.com/NVIDIA/TensorRT) repository at branch **`release/10.15`** into **`/workspace/TREx`** and installs **[TREx](https://github.com/NVIDIA/TensorRT/tree/release/10.15/tools/experimental/trt-engine-explorer)** (*trt-engine-explorer*) into a dedicated Python virtual environment at **`/workspace/TREx/env`**. Use this tooling **only** for **TensorRT engine profiling and exploration** (layer graphs, `trtexec` JSON, notebooks). It is **not** part of the **`model-opt-yolo`** PTQ pipeline (calib → quantize → build-trt → eval).
+
+```bash
+source /workspace/TREx/env/bin/activate
+trex --help
+# Notebooks and utilities: /workspace/TREx/tools/experimental/trt-engine-explorer/
+```
+
+The container’s TensorRT runtime comes from the NGC base image and may differ from the **10.15** source line; TREx is intended for analysis workflows alongside engines you build in this environment. Details: [docs/docker-reference.md — TREx](docs/docker-reference.md#trex-for-model-profiling).
 
 #### Development (edit mode in Docker)
 

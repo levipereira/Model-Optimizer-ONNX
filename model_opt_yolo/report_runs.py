@@ -3,11 +3,24 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import importlib.metadata
+import io
 import math
 import re
+import shutil
+import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+
+from model_opt_yolo.session_paths import (
+    artifacts_root,
+    effective_session_id,
+    pipeline_e2e_session_eval_logs,
+    pipeline_e2e_session_root,
+    pipeline_e2e_session_trt_logs,
+)
 
 
 # trt_bench_yolo26n_marcos_luciano.fp8.entropy.quant_20260410-162441.log
@@ -29,6 +42,7 @@ RE_SPEED = re.compile(
 )
 RE_DEVICE = re.compile(r"Selected Device:\s*(.+)$", re.MULTILINE)
 RE_TRT_VER = re.compile(r"TensorRT version:\s*([\d.]+)", re.MULTILINE)
+RE_CUDA_BANNER = re.compile(r"CUDA Version:\s*([\d.]+)", re.IGNORECASE)
 
 KNOWN_PREC = ("fp8", "int8", "int4", "fp16", "int16")
 KNOWN_CALIB = ("entropy", "max", "awq_clip", "rtn_dq", "minmax", "percentile")
@@ -124,23 +138,24 @@ def _parse_eval(path: Path) -> tuple[
     return m5095, m50, pre, inf, post
 
 
-def _collect_latest(
-    directory: Path, pattern_glob: str, regex: re.Pattern[str]
+def _collect_latest_dirs(
+    directories: list[Path], pattern_glob: str, regex: re.Pattern[str]
 ) -> dict[str, tuple[Path, str, str]]:
-    """config_key -> (path, run_ts, fname). Keeps newest run_ts per key."""
+    """config_key -> (path, run_ts, fname). Keeps newest run_ts per key across dirs."""
     latest: dict[str, tuple[Path, str, str]] = {}
-    if not directory.is_dir():
-        return latest
-    for path in sorted(directory.glob(pattern_glob)):
-        m = regex.match(path.name)
-        if not m:
+    for directory in directories:
+        if not directory.is_dir():
             continue
-        key, ts = m.group(1), m.group(2)
-        if key not in latest:
-            latest[key] = (path, ts, path.name)
-        else:
-            if _ts_key(ts) > _ts_key(latest[key][1]):
+        for path in sorted(directory.glob(pattern_glob)):
+            m = regex.match(path.name)
+            if not m:
+                continue
+            key, ts = m.group(1), m.group(2)
+            if key not in latest:
                 latest[key] = (path, ts, path.name)
+            else:
+                if _ts_key(ts) > _ts_key(latest[key][1]):
+                    latest[key] = (path, ts, path.name)
     return latest
 
 
@@ -187,6 +202,206 @@ def _combined_score(map5095: float, qps: float) -> float:
     return math.sqrt(map5095 * (qps / 1000.0))
 
 
+def _dist_version(*distribution_names: str) -> str | None:
+    for name in distribution_names:
+        try:
+            return importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            continue
+    return None
+
+
+def _tensorrt_python_version() -> str | None:
+    try:
+        import tensorrt as trt  # type: ignore[import-untyped]
+
+        return str(getattr(trt, "__version__", None) or "")
+    except Exception:
+        return None
+
+
+def _torch_cuda_versions() -> tuple[str | None, str | None]:
+    try:
+        import torch
+
+        tv = str(torch.__version__)
+        cv = getattr(torch.version, "cuda", None)
+        return tv, str(cv) if cv else None
+    except Exception:
+        return None, None
+
+
+def _nvidia_smi_bin() -> str | None:
+    return shutil.which("nvidia-smi")
+
+
+def _nvidia_smi_cuda_banner() -> str | None:
+    """CUDA version as reported by the driver (header of ``nvidia-smi``)."""
+    nsmi = _nvidia_smi_bin()
+    if not nsmi:
+        return None
+    try:
+        p = subprocess.run(
+            [nsmi],
+            capture_output=True,
+            text=True,
+            timeout=25,
+            errors="replace",
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    m = RE_CUDA_BANNER.search(p.stdout or "")
+    return m.group(1) if m else None
+
+
+def _nvidia_smi_gpu_rows() -> list[dict[str, str]]:
+    """Per-GPU fields from ``nvidia-smi --query-gpu`` (best effort)."""
+    nsmi = _nvidia_smi_bin()
+    if not nsmi:
+        return []
+    field_sets = (
+        "name,memory.total,memory.free,driver_version,compute_cap,sm_count",
+        "name,memory.total,memory.free,driver_version,compute_cap",
+        "name,memory.total,driver_version",
+    )
+    for fields in field_sets:
+        try:
+            p = subprocess.run(
+                [
+                    nsmi,
+                    f"--query-gpu={fields}",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=25,
+                errors="replace",
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if p.returncode != 0 or not (p.stdout or "").strip():
+            continue
+        header = [h.strip() for h in fields.split(",")]
+        rows: list[dict[str, str]] = []
+        for line in (p.stdout or "").strip().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                reader = csv.reader(io.StringIO(line))
+                parts = next(reader)
+            except StopIteration:
+                continue
+            if len(parts) < len(header):
+                continue
+            row: dict[str, str] = {}
+            for i, key in enumerate(header):
+                row[key] = parts[i].strip() if i < len(parts) else ""
+            rows.append(row)
+        if rows:
+            return rows
+    return []
+
+
+def _escape_md_cell(s: str) -> str:
+    return s.replace("|", "\\|").replace("\n", " ")
+
+
+def _environment_table_lines(
+    *,
+    tensorrt_from_log: str | None,
+    device_from_log: str | None,
+) -> list[str]:
+    """Markdown lines for ## Environment & versions."""
+    lines: list[str] = []
+    lines.append("## Environment & versions")
+    lines.append("")
+    lines.append("| Item | Value |")
+    lines.append("|---|---|")
+
+    moy = _dist_version("model-opt-yolo")
+    lines.append(
+        f"| model-opt-yolo | `{_escape_md_cell(moy or 'unknown')}` |"
+    )
+
+    mo = _dist_version("nvidia-modelopt", "modelopt")
+    lines.append(
+        f"| NVIDIA Model Optimizer (pip) | `{_escape_md_cell(mo or '—')}` |"
+    )
+
+    trt_py = _tensorrt_python_version()
+    lines.append(
+        f"| TensorRT (Python bindings) | `{_escape_md_cell(trt_py or '—')}` |"
+    )
+    if tensorrt_from_log:
+        lines.append(
+            f"| TensorRT (trtexec log) | `{_escape_md_cell(tensorrt_from_log)}` |"
+        )
+    elif trt_py:
+        lines.append("| TensorRT (trtexec log) | *not found in scanned logs* |")
+    else:
+        lines.append("| TensorRT (trtexec log) | — |")
+
+    tv, tcuda = _torch_cuda_versions()
+    lines.append(
+        f"| PyTorch | `{_escape_md_cell(tv or '—')}` |"
+    )
+    lines.append(
+        f"| PyTorch CUDA build | `{_escape_md_cell(tcuda or '—')}` |"
+    )
+
+    cuda_drv = _nvidia_smi_cuda_banner()
+    lines.append(
+        f"| CUDA (driver / `nvidia-smi`) | `{_escape_md_cell(cuda_drv or '—')}` |"
+    )
+
+    gpu_rows = _nvidia_smi_gpu_rows()
+    if not gpu_rows:
+        lines.append("| GPU (nvidia-smi) | *not available* |")
+        lines.append("| Driver | — |")
+        lines.append("| GPU memory | — |")
+        lines.append("| Compute capability | — |")
+        lines.append("| SM count | — |")
+    else:
+        for i, g in enumerate(gpu_rows):
+            idx = f" [{i}]" if len(gpu_rows) > 1 else ""
+            name = g.get("name", "—")
+            mem = g.get("memory.total", "—")
+            if mem and mem != "—":
+                mem = f"{mem} MiB"
+            drv = g.get("driver_version", "—")
+            cc = g.get("compute_cap", "—")
+            sm = g.get("sm_count", "—")
+            mfree = g.get("memory.free", "")
+            mem_note = mem
+            if mfree and mfree != "—":
+                mem_note = f"{mem} (free {_escape_md_cell(mfree)} MiB)" if mem != "—" else f"free {mfree} MiB"
+            lines.append(
+                f"| GPU{idx} | `{_escape_md_cell(name)}` |"
+            )
+            lines.append(f"| Driver{idx} | `{_escape_md_cell(drv)}` |")
+            lines.append(f"| GPU memory{idx} | `{_escape_md_cell(mem_note)}` |")
+            lines.append(
+                f"| Compute capability{idx} | `{_escape_md_cell(cc)}` |"
+            )
+            lines.append(f"| SM count{idx} | `{_escape_md_cell(sm)}` |")
+
+    if device_from_log:
+        lines.append(
+            f"| GPU (from TRT bench log) | `{_escape_md_cell(device_from_log)}` |"
+        )
+
+    lines.append("")
+    lines.append(
+        "*CUDA (driver): maximum CUDA version supported by the installed NVIDIA driver "
+        "(from the `nvidia-smi` banner). "
+        "SM count is only filled when your driver's `nvidia-smi --query-gpu` supports it; "
+        "otherwise rely on compute capability.*"
+    )
+    lines.append("")
+    return lines
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         description=(
@@ -194,30 +409,81 @@ def main(argv: list[str] | None = None) -> int:
             "and write a Markdown report with tables and PNG bar charts."
         )
     )
-    root = Path(__file__).resolve().parents[1]
+    _default_trt = artifacts_root() / "trt_engine" / "logs"
+    _default_eval = artifacts_root() / "predictions" / "logs"
+    p.add_argument(
+        "--session-id",
+        type=str,
+        default=None,
+        metavar="ID",
+        help=(
+            "Use logs under artifacts/pipeline_e2e/sessions/<id>/ (same layout as pipeline-e2e). "
+            "Sets --trt-logs-dir and --eval-logs-dir unless you pass those explicitly; "
+            "sets -o to <session>/e2e_report.md unless -o is set. "
+            "If omitted, SESSION_ID environment variable is used when set (CLI wins). "
+            "Without --session-id and without explicit log dirs, defaults scan **global** "
+            "artifacts/trt_engine/logs (not the session folder) — pipeline outputs are often only under sessions/<id>/."
+        ),
+    )
     p.add_argument(
         "--trt-logs-dir",
         type=Path,
-        default=root / "artifacts" / "trt_engine" / "logs",
-        help="Directory containing trt_bench_*.log files",
+        default=None,
+        help=f"Directory containing trt_bench_*.log files (default: {_default_trt})",
     )
     p.add_argument(
         "--eval-logs-dir",
         type=Path,
-        default=root / "artifacts" / "predictions" / "logs",
-        help="Directory containing eval_*.log files",
+        default=None,
+        help=f"Directory containing eval_*.log files (default: {_default_eval})",
+    )
+    p.add_argument(
+        "--merge-global-logs",
+        action="store_true",
+        help=(
+            "Also scan global artifacts/trt_engine/logs and artifacts/predictions/logs "
+            "(in addition to --trt-logs-dir / --eval-logs-dir) and merge by config key "
+            "(newest timestamp wins). Use after pipeline-e2e if logs were split between "
+            "session folders and the default flat logs dir."
+        ),
     )
     p.add_argument(
         "--output",
         "-o",
         type=Path,
         default=None,
-        help="Output .md path (default: artifacts/reports/trt_eval_report_<timestamp>.md)",
+        help="Output .md path (default: artifacts/reports/trt_eval_report_<timestamp>.md, or "
+        "<session>/e2e_report.md with --session-id)",
     )
     args = p.parse_args(argv)
 
-    trt_latest = _collect_latest(args.trt_logs_dir, "trt_bench_*.log", RE_TRT_BENCH)
-    eval_latest = _collect_latest(args.eval_logs_dir, "eval_*.log", RE_EVAL)
+    session_id = effective_session_id(args.session_id) or ""
+    if session_id:
+        trt_logs_dir = args.trt_logs_dir or pipeline_e2e_session_trt_logs(session_id)
+        eval_logs_dir = args.eval_logs_dir or pipeline_e2e_session_eval_logs(session_id)
+    else:
+        trt_logs_dir = args.trt_logs_dir or _default_trt
+        eval_logs_dir = args.eval_logs_dir or _default_eval
+    args.trt_logs_dir = trt_logs_dir
+    args.eval_logs_dir = eval_logs_dir
+
+    out_arg = args.output
+    if session_id and args.output is None:
+        out_arg = pipeline_e2e_session_root(session_id) / "e2e_report.md"
+    args.output = out_arg
+
+    trt_dirs: list[Path] = [Path(args.trt_logs_dir).resolve()]
+    eval_dirs: list[Path] = [Path(args.eval_logs_dir).resolve()]
+    if args.merge_global_logs:
+        g_trt = (artifacts_root() / "trt_engine" / "logs").resolve()
+        g_ev = (artifacts_root() / "predictions" / "logs").resolve()
+        if g_trt not in trt_dirs:
+            trt_dirs.append(g_trt)
+        if g_ev not in eval_dirs:
+            eval_dirs.append(g_ev)
+
+    trt_latest = _collect_latest_dirs(trt_dirs, "trt_bench_*.log", RE_TRT_BENCH)
+    eval_latest = _collect_latest_dirs(eval_dirs, "eval_*.log", RE_EVAL)
 
     all_keys = sorted(set(trt_latest) | set(eval_latest))
 
@@ -311,7 +577,7 @@ def main(argv: list[str] | None = None) -> int:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     out = args.output
     if out is None:
-        rep = root / "artifacts" / "reports"
+        rep = artifacts_root() / "reports"
         rep.mkdir(parents=True, exist_ok=True)
         out = rep / f"trt_eval_report_{stamp}.md"
 
@@ -343,17 +609,25 @@ def main(argv: list[str] | None = None) -> int:
     lines.append("# TensorRT bench + COCO eval — summary")
     lines.append("")
     lines.append(f"- Generated: `{datetime.now().isoformat(timespec='seconds')}`")
+    trt_src = ", ".join(f"`{d}`" for d in trt_dirs)
+    ev_src = ", ".join(f"`{d}`" for d in eval_dirs)
     lines.append(
-        f"- TRT logs (`trt_bench_*.log`): `{args.trt_logs_dir}` ({len(trt_latest)} unique configs)"
+        f"- TRT logs (`trt_bench_*.log`): scanned {trt_src} → **{len(trt_latest)}** unique config(s)"
     )
     lines.append(
-        f"- Eval logs (`eval_*.log`): `{args.eval_logs_dir}` ({len(eval_latest)} unique configs)"
+        f"- Eval logs (`eval_*.log`): scanned {ev_src} → **{len(eval_latest)}** unique config(s)"
     )
-    if device:
-        lines.append(f"- GPU (from latest TRT log): {device}")
-    if trtver:
-        lines.append(f"- TensorRT (from log): {trtver}")
+    if args.merge_global_logs:
+        lines.append(
+            "- **Note:** `--merge-global-logs` was set; session + global `artifacts/.../logs` were merged (newest timestamp per stem)."
+        )
     lines.append("")
+    lines.extend(
+        _environment_table_lines(
+            tensorrt_from_log=trtver,
+            device_from_log=device,
+        )
+    )
     lines.append("## Best configuration (by metric)")
     lines.append("")
     lines.append("| Metric | Config (stem) | Value |")

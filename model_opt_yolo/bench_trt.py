@@ -18,7 +18,7 @@ from pathlib import Path
 
 from model_opt_yolo.io_checks import validate_readable_file
 from model_opt_yolo.logutil import add_logging_arguments, setup_logging
-from model_opt_yolo.session_paths import default_trt_bench_session_log, run_timestamp
+from model_opt_yolo.session_paths import default_trt_bench_session_log, effective_session_id, run_timestamp
 
 _TRT_BEST_PRACTICES = (
     "https://docs.nvidia.com/deeplearning/tensorrt/latest/performance/best-practices.html"
@@ -84,6 +84,17 @@ def main(argv: list[str] | None = None) -> int:
         help="trtexec --duration: wall-clock measurement window in seconds (default: 60).",
     )
     parser.add_argument(
+        "--session-id",
+        type=str,
+        default=None,
+        metavar="ID",
+        help=(
+            "Optional pipeline session id: when set (and --log-file is omitted), "
+            "logs go under artifacts/pipeline_e2e/sessions/<id>/trt_engine/logs/. "
+            "If omitted, SESSION_ID is used when set. Same as build-trt/eval-trt/report-runs."
+        ),
+    )
+    parser.add_argument(
         "passthrough",
         nargs=argparse.REMAINDER,
         help="Extra args after -- forwarded to trtexec.",
@@ -107,8 +118,9 @@ def main(argv: list[str] | None = None) -> int:
     stem = engine_path.stem
     ts = run_timestamp()
     log_path = args.log_file
+    sid = effective_session_id(args.session_id)
     if log_path is None:
-        log_path = str(default_trt_bench_session_log(engine_stem=stem, ts=ts))
+        log_path = str(default_trt_bench_session_log(engine_stem=stem, ts=ts, session_id=sid))
 
     setup_logging("trt_bench", log_file=log_path, verbose=args.verbose)
     log = logging.getLogger("trt_bench")

@@ -12,6 +12,8 @@ export MODELOPT_ARTIFACTS_ROOT=/path/to/my_artifacts
 
 If the path does not exist, it is created when a command first needs it. Relative values are resolved against the process current working directory at the time `artifacts_root()` runs.
 
+**Session id (optional):** If you set **`export SESSION_ID=my-run-1`**, commands that support **`--session-id`** (`pipeline-e2e`, `build-trt`, `eval-trt`, `trt-bench`, `report-runs`) use that value automatically when the flag is omitted. A **`--session-id`** on the command line overrides **`SESSION_ID`**.
+
 ---
 
 ## Layout
@@ -27,7 +29,9 @@ If the path does not exist, it is created when a command first needs it. Relativ
 | `artifacts/predictions/` | COCO prediction JSON from `eval-trt` |
 | `artifacts/predictions/logs/` | `eval_*.log` |
 | `artifacts/autotune/` | Autotune artifacts (when using `quantize --autotune`) |
-| `artifacts/pipeline_e2e/sessions/<session_id>/` | `pipeline-e2e`: `session.json`, `pipeline.log`, session-scoped logs (`trt_engine/logs/`, `predictions/logs/`, `quantized/logs/`) and `e2e_report.md` — `report-runs` reads only these dirs so older global logs are not merged |
+| `artifacts/pipeline_e2e/sessions/<session_id>/` | `pipeline-e2e`: `session.json`, `pipeline.log`, session-scoped logs (`trt_engine/logs/`, `predictions/logs/`, `quantized/logs/`), FP16 baseline + PTQ run logs, and `e2e_report.md`. **`report-runs`** must use **`--session-id <id>`** (or explicit paths to those session `…/logs` folders) to aggregate them; the default `report-runs` without `--session-id` scans only the **global** `artifacts/trt_engine/logs` and `artifacts/predictions/logs`, which usually **do not** contain the full `pipeline-e2e` run. `pipeline-e2e` calls `report-runs` with `--session-id` and **`--merge-global-logs`** so metrics from session + global are merged when needed. |
+
+**Manual runs with the same session:** `model-opt-yolo build-trt`, `eval-trt`, and `trt-bench` accept **`--session-id <session_id>`** (when **`--log-file`** is omitted). Default logs are written under the same `artifacts/pipeline_e2e/sessions/<session_id>/…` tree as `pipeline-e2e`. Then **`model-opt-yolo report-runs --session-id <session_id>`** picks them up without passing `--trt-logs-dir` / `--eval-logs-dir`.
 
 ---
 
