@@ -29,7 +29,14 @@ RE_TRT_BENCH = re.compile(r"^trt_bench_(.+)_(\d{8}-\d{6})\.log$")
 RE_EVAL = re.compile(r"^eval_(.+)_(\d{8}-\d{6})\.log$")
 
 RE_THROUGHPUT = re.compile(r"Throughput:\s*([\d.]+)\s*qps", re.IGNORECASE)
-# trtexec "[I] Latency: min = ..." summary line (avoid matching "H2D Latency:" / "D2H Latency:")
+# Full GPU latency line from "=== Performance summary ===" (not H2D/D2H)
+RE_LATENCY_FULL = re.compile(
+    r"\[I\]\s+Latency:\s*min\s*=\s*([\d.]+)\s*ms,\s*max\s*=\s*([\d.]+)\s*ms,\s*mean\s*=\s*([\d.]+)\s*ms,\s*"
+    r"median\s*=\s*([\d.]+)\s*ms,\s*percentile\(90%\)\s*=\s*([\d.]+)\s*ms,\s*"
+    r"percentile\(95%\)\s*=\s*([\d.]+)\s*ms,\s*percentile\(99%\)\s*=\s*([\d.]+)\s*ms",
+    re.IGNORECASE,
+)
+# Fallback: mean only (older trtexec / truncated logs)
 RE_LATENCY_SUMMARY = re.compile(
     r"\[I\]\s+Latency:\s*min\s*=\s*[\d.]+\s*ms,\s*max\s*=\s*[\d.]+\s*ms,\s*mean\s*=\s*([\d.]+)\s*ms",
     re.IGNORECASE,
@@ -40,8 +47,14 @@ RE_MAP50 = re.compile(r"mAP@0\.5\s*=\s*([\d.]+)")
 RE_SPEED = re.compile(
     r"Speed per image:\s*preprocess\s*([\d.]+)ms,\s*inference\s*([\d.]+)ms,\s*postprocess\s*([\d.]+)ms"
 )
+RE_TOTAL_DETECTIONS = re.compile(r"Total detections:\s*(\d+)", re.IGNORECASE)
 RE_DEVICE = re.compile(r"Selected Device:\s*(.+)$", re.MULTILINE)
 RE_TRT_VER = re.compile(r"TensorRT version:\s*([\d.]+)", re.MULTILINE)
+# trtexec: "Input binding for input with dimensions 1x3x640x640 is created."
+RE_INPUT_BATCH = re.compile(
+    r"Input binding for .+ with dimensions (\d+)x\d+x\d+x\d+",
+    re.IGNORECASE,
+)
 RE_CUDA_BANNER = re.compile(r"CUDA Version:\s*([\d.]+)", re.IGNORECASE)
 
 KNOWN_PREC = ("fp8", "int8", "int4", "fp16", "int16")
@@ -55,6 +68,11 @@ class TrtBenchRecord:
     run_ts: str
     throughput_qps: float | None = None
     latency_mean_ms: float | None = None
+    latency_median_ms: float | None = None
+    latency_p90_ms: float | None = None
+    latency_p95_ms: float | None = None
+    latency_p99_ms: float | None = None
+    batch_size: int | None = None
     raw_device: str | None = None
     raw_trt_version: str | None = None
 
@@ -69,6 +87,7 @@ class EvalRecord:
     infer_ms: float | None = None
     preprocess_ms: float | None = None
     postprocess_ms: float | None = None
+    total_detections: int | None = None
 
 
 @dataclass
@@ -100,18 +119,52 @@ def _ts_key(ts: str) -> tuple[int, int]:
     return (int(m.group(1)), int(m.group(2)))
 
 
-def _parse_trt_bench(path: Path) -> tuple[float | None, float | None, str | None, str | None]:
+def _parse_trt_bench(
+    path: Path,
+) -> tuple[
+    float | None,
+    float | None,
+    float | None,
+    float | None,
+    float | None,
+    float | None,
+    int | None,
+    str | None,
+    str | None,
+]:
+    """Parse trt-bench log: throughput, latencies, batch (input dim N), device, TRT version."""
     text = path.read_text(encoding="utf-8", errors="replace")
     tp = None
     for m in RE_THROUGHPUT.finditer(text):
         tp = float(m.group(1))
-    lat = None
-    for m in RE_LATENCY_SUMMARY.finditer(text):
-        lat = float(m.group(1))
+    mean = med = p90 = p95 = p99 = None
+    m_full = RE_LATENCY_FULL.search(text)
+    if m_full:
+        mean = float(m_full.group(3))
+        med = float(m_full.group(4))
+        p90 = float(m_full.group(5))
+        p95 = float(m_full.group(6))
+        p99 = float(m_full.group(7))
+    else:
+        m_mean = RE_LATENCY_SUMMARY.search(text)
+        if m_mean:
+            mean = float(m_mean.group(1))
+    batch = None
+    m_b = RE_INPUT_BATCH.search(text)
+    if m_b:
+        batch = int(m_b.group(1))
     dev_m = RE_DEVICE.search(text)
     trt_m = RE_TRT_VER.search(text)
-    return tp, lat, (dev_m.group(1).strip() if dev_m else None), (
-        trt_m.group(1) if trt_m else None
+    return (
+        tp,
+        mean,
+        med,
+        p90,
+        p95,
+        p99,
+        batch,
+        (dev_m.group(1).strip() if dev_m else None),
+        (trt_m.group(1) if trt_m else None),
     )
 
 
@@ -121,6 +174,7 @@ def _parse_eval(path: Path) -> tuple[
     float | None,
     float | None,
     float | None,
+    int | None,
 ]:
     text = path.read_text(encoding="utf-8", errors="replace")
     m5095 = None
@@ -135,7 +189,11 @@ def _parse_eval(path: Path) -> tuple[
         pre = float(sm.group(1))
         inf = float(sm.group(2))
         post = float(sm.group(3))
-    return m5095, m50, pre, inf, post
+    n_det = None
+    m_td = RE_TOTAL_DETECTIONS.search(text)
+    if m_td:
+        n_det = int(m_td.group(1))
+    return m5095, m50, pre, inf, post, n_det
 
 
 def _collect_latest_dirs(
@@ -166,33 +224,283 @@ def _short_label(key: str, max_len: int = 28) -> str:
     return s
 
 
-def _write_bar_chart_png(
+def _chart_axis_label(r: dict) -> str:
+    """Short label: FP16 baseline vs ``precision · calibrator`` for quantized rows."""
+    prec = str(r.get("precision") or "—")
+    cal = str(r.get("calibrator") or "—")
+    if prec == "fp16" and cal == "—":
+        return "FP16 baseline"
+    if cal != "—":
+        return f"{prec} · {cal}"
+    return prec
+
+
+def _is_fp16_baseline_row(r: dict) -> bool:
+    pk = str(r.get("config_key", ""))
+    if str(r.get("precision") or "") != "fp16":
+        return False
+    return ".quant" not in pk
+
+
+def _sort_rows_report_order(rows: list[dict]) -> list[dict]:
+    """fp16 first, then int8 / fp8 / int4, then calibrator, then key."""
+
+    def sk(r: dict) -> tuple:
+        meta = _parse_config_meta(str(r["config_key"]))
+        prec_order = {"fp16": 0, "int8": 1, "fp8": 2, "int4": 3, "int16": 4}
+        po = prec_order.get((meta.precision or "").lower(), 99)
+        return (po, meta.calibrator or "", str(r["config_key"]))
+
+    return sorted(rows, key=sk)
+
+
+def _write_eval_map_detections_dual_axis_png(
+    out_png: Path,
+    title: str,
+    labels: list[str],
+    map_vals: list[float],
+    det_vals: list[float],
+) -> None:
+    """Left: mAP@0.5:0.95; right: total bbox detections (eval-trt log)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    x = np.arange(len(labels))
+    fig, ax1 = plt.subplots(figsize=(11.5, 5.2), dpi=120)
+    c_map, c_det = "#2ca02c", "#ff7f0e"
+    ax1.plot(x, map_vals, "o-", color=c_map, linewidth=2.0, markersize=8, label="mAP@0.5:0.95")
+    ax1.set_ylabel("mAP@0.5:0.95", color=c_map, fontsize=10)
+    ax1.tick_params(axis="y", labelcolor=c_map)
+    for xv, yv in zip(x, map_vals):
+        if not np.isnan(yv):
+            ax1.annotate(
+                f"{yv:.4f}",
+                (xv, yv),
+                textcoords="offset points",
+                xytext=(0, 9),
+                ha="center",
+                fontsize=7,
+                color=c_map,
+            )
+    ax2 = ax1.twinx()
+    ax2.plot(x, det_vals, "s-", color=c_det, linewidth=2.0, markersize=7, label="Total detections")
+    ax2.set_ylabel("Total detections (count)", color=c_det, fontsize=10)
+    ax2.tick_params(axis="y", labelcolor=c_det)
+    for xv, yv in zip(x, det_vals):
+        if not np.isnan(yv):
+            ax2.annotate(
+                f"{int(yv):,}",
+                (xv, yv),
+                textcoords="offset points",
+                xytext=(0, -13),
+                ha="center",
+                fontsize=6,
+                color=c_det,
+            )
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(labels, rotation=38, ha="right", fontsize=8)
+    ax1.set_title(title, fontsize=11)
+    ax1.grid(axis="y", alpha=0.26)
+    h1, l1 = ax1.get_legend_handles_labels()
+    h2, l2 = ax2.get_legend_handles_labels()
+    ax1.legend(h1 + h2, l1 + l2, loc="upper center", fontsize=8, ncol=2)
+    fig.tight_layout()
+    fig.savefig(out_png, format="png", bbox_inches="tight")
+    plt.close(fig)
+
+
+def _write_line_chart_annotated_png(
     out_png: Path,
     title: str,
     labels: list[str],
     values: list[float],
     ylabel: str,
 ) -> None:
-    """Render a bar chart to PNG (non-interactive backend)."""
+    """Line chart with numeric labels at each point."""
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    import numpy as np
 
     out_png.parent.mkdir(parents=True, exist_ok=True)
-    fig, ax = plt.subplots(figsize=(10, 4.2), dpi=120)
-    x = range(len(labels))
-    ax.bar(x, values, color="steelblue", edgecolor="white", linewidth=0.5)
+    fig, ax = plt.subplots(figsize=(11, 5), dpi=120)
+    x = np.arange(len(labels))
+    ax.plot(x, values, "o-", color="#2ca02c", linewidth=2.0, markersize=8)
     ax.set_title(title, fontsize=11)
     ax.set_ylabel(ylabel)
-    ax.set_xticks(list(x))
-    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=38, ha="right", fontsize=8)
     ax.grid(axis="y", alpha=0.3)
+    ymin = min(values) if values else 0.0
     ymax = max(values) if values else 1.0
-    ax.set_ylim(0, ymax * 1.12 if ymax > 0 else 1.0)
+    pad = (ymax - ymin) * 0.12 if ymax > ymin else 0.04
+    ax.set_ylim(max(0, ymin - pad), ymax + pad)
+    for i, (xv, yv) in enumerate(zip(x, values)):
+        ax.annotate(
+            f"{yv:.4f}",
+            (xv, yv),
+            textcoords="offset points",
+            xytext=(0, 10),
+            ha="center",
+            fontsize=7,
+            color="#1a5c1a",
+        )
     fig.tight_layout()
     fig.savefig(out_png, format="png", bbox_inches="tight")
     plt.close(fig)
+
+
+def _write_ips_latency_twin_png(
+    out_png: Path,
+    title: str,
+    subtitle: str,
+    labels: list[str],
+    ips_vals: list[float],
+    mean_ms: list[float],
+    p99_ms: list[float],
+) -> None:
+    """Left axis: IPS = batch × QPS; right axis: mean & p99 GPU latency (trtexec)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    x = np.arange(len(labels))
+    fig, ax1 = plt.subplots(figsize=(11.8, 5.5), dpi=120)
+    c_ips, c_m, c_p = "#1f77b4", "#d62728", "#9467bd"
+    ax1.plot(x, ips_vals, "o-", color=c_ips, linewidth=2.0, markersize=8, label="IPS (batch × QPS)")
+    ax1.set_ylabel("IPS (inferences/s)", color=c_ips, fontsize=10)
+    ax1.tick_params(axis="y", labelcolor=c_ips)
+    for xv, yv in zip(x, ips_vals):
+        if not np.isnan(yv):
+            ax1.annotate(
+                f"{yv:.1f}",
+                (xv, yv),
+                textcoords="offset points",
+                xytext=(0, 9),
+                ha="center",
+                fontsize=7,
+                color=c_ips,
+            )
+    ax2 = ax1.twinx()
+    ax2.plot(x, mean_ms, "^-", color=c_m, linewidth=1.9, markersize=6, label="Mean latency (ms)")
+    ax2.plot(x, p99_ms, "s-", color=c_p, linewidth=1.9, markersize=6, label="p99 latency (ms)")
+    ax2.set_ylabel("Latency (ms, GPU)", fontsize=10)
+    ax2.tick_params(axis="y")
+    for xv, yv in zip(x, mean_ms):
+        if not np.isnan(yv):
+            ax2.annotate(
+                f"{yv:.4f}",
+                (xv, yv),
+                textcoords="offset points",
+                xytext=(0, 10),
+                ha="center",
+                fontsize=6,
+                color=c_m,
+            )
+    for xv, yv in zip(x, p99_ms):
+        if not np.isnan(yv):
+            ax2.annotate(
+                f"{yv:.4f}",
+                (xv, yv),
+                textcoords="offset points",
+                xytext=(0, -13),
+                ha="center",
+                fontsize=6,
+                color=c_p,
+            )
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(labels, rotation=38, ha="right", fontsize=8)
+    ax1.set_title(title + ("\n" + subtitle if subtitle else ""), fontsize=10)
+    ax1.grid(axis="y", alpha=0.26)
+    h1, l1 = ax1.get_legend_handles_labels()
+    h2, l2 = ax2.get_legend_handles_labels()
+    ax1.legend(h1 + h2, l1 + l2, loc="upper center", fontsize=8, ncol=3)
+    fig.tight_layout()
+    fig.savefig(out_png, format="png", bbox_inches="tight")
+    plt.close(fig)
+
+
+def _fmt_opt4(v: object) -> str:
+    return f"{float(v):.4f}" if isinstance(v, (int, float)) else "—"
+
+
+def _fmt_opt2(v: object) -> str:
+    return f"{float(v):.2f}" if isinstance(v, (int, float)) else "—"
+
+
+def _pct_vs_ref(value: float | None, ref: float | None) -> str:
+    if value is None or ref is None or ref == 0:
+        return "—"
+    return f"{100.0 * (float(value) - float(ref)) / float(ref):+.2f}%"
+
+
+def _pick_best_row(rows: list[dict]) -> dict | None:
+    """Prefer highest combined score (mAP + QPS); else highest mAP."""
+    with_combo = [r for r in rows if isinstance(r.get("combined"), (int, float))]
+    if with_combo:
+        return max(with_combo, key=lambda r: float(r["combined"]))
+    with_map = [r for r in rows if isinstance(r.get("map5095"), (int, float))]
+    if with_map:
+        return max(with_map, key=lambda r: float(r["map5095"]))
+    return None
+
+
+def _comparison_table_md(
+    ref: dict,
+    others: list[dict],
+    heading: str,
+    ref_description: str,
+) -> list[str]:
+    """Markdown table: each row shows absolute metrics and % vs reference."""
+    lines: list[str] = [
+        f"## {heading}",
+        "",
+        f"Reference: **{ref_description}** — mAP `{ref.get('config_key')}`, "
+        f"mAP@0.5:0.95 = {_fmt_opt4(ref.get('map5095'))}, QPS = {_fmt_opt2(ref.get('qps'))}, "
+        f"mean ms = {_fmt_opt4(ref.get('latency_ms'))}, p99 ms = {_fmt_opt4(ref.get('latency_p99_ms'))}.",
+        "",
+        "% vs reference = `100 × (value − ref) / ref` (for latency ms, **+** means slower).",
+        "",
+        "| Config | mAP@0.5:0.95 | vs ref | QPS | vs ref | Mean ms | vs ref | p99 ms | vs ref |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    rk = ref
+    for r in others:
+        lines.append(
+            "| `{cfg}` | {m} | {mp} | {q} | {qp} | {lm} | {lmp} | {p9} | {p9p} |".format(
+                cfg=r["config_key"],
+                m=_fmt_opt4(r.get("map5095")),
+                mp=_pct_vs_ref(
+                    float(r["map5095"]) if r.get("map5095") is not None else None,
+                    float(rk["map5095"]) if rk.get("map5095") is not None else None,
+                ),
+                q=_fmt_opt2(r.get("qps")),
+                qp=_pct_vs_ref(
+                    float(r["qps"]) if r.get("qps") is not None else None,
+                    float(rk["qps"]) if rk.get("qps") is not None else None,
+                ),
+                lm=_fmt_opt4(r.get("latency_ms")),
+                lmp=_pct_vs_ref(
+                    float(r["latency_ms"]) if r.get("latency_ms") is not None else None,
+                    float(rk["latency_ms"]) if rk.get("latency_ms") is not None else None,
+                ),
+                p9=_fmt_opt4(r.get("latency_p99_ms")),
+                p9p=_pct_vs_ref(
+                    float(r["latency_p99_ms"]) if r.get("latency_p99_ms") is not None else None,
+                    float(rk["latency_p99_ms"]) if rk.get("latency_p99_ms") is not None else None,
+                ),
+            )
+        )
+    lines.append("")
+    return lines
 
 
 def _combined_score(map5095: float, qps: float) -> float:
@@ -406,7 +714,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         description=(
             "Read trt_bench_*.log and eval_*.log, merge by ONNX/engine stem, "
-            "and write a Markdown report with tables and PNG bar charts."
+            "and write a Markdown report with tables and PNG line charts."
         )
     )
     _default_trt = artifacts_root() / "trt_engine" / "logs"
@@ -494,19 +802,24 @@ def main(argv: list[str] | None = None) -> int:
     for key in all_keys:
         if key in trt_latest:
             path, ts, _ = trt_latest[key]
-            tp, lat, dev, trtv = _parse_trt_bench(path)
+            tp, mean, med, p90, p95, p99, batch, dev, trtv = _parse_trt_bench(path)
             trt_by_key[key] = TrtBenchRecord(
                 path=path,
                 config_key=key,
                 run_ts=ts,
                 throughput_qps=tp,
-                latency_mean_ms=lat,
+                latency_mean_ms=mean,
+                latency_median_ms=med,
+                latency_p90_ms=p90,
+                latency_p95_ms=p95,
+                latency_p99_ms=p99,
+                batch_size=batch,
                 raw_device=dev,
                 raw_trt_version=trtv,
             )
         if key in eval_latest:
             path, ts, _ = eval_latest[key]
-            m95, m50, pre, inf, post = _parse_eval(path)
+            m95, m50, pre, inf, post, n_det = _parse_eval(path)
             eval_by_key[key] = EvalRecord(
                 path=path,
                 config_key=key,
@@ -516,6 +829,7 @@ def main(argv: list[str] | None = None) -> int:
                 preprocess_ms=pre,
                 infer_ms=inf,
                 postprocess_ms=post,
+                total_detections=n_det,
             )
 
     device = None
@@ -533,7 +847,16 @@ def main(argv: list[str] | None = None) -> int:
         m95 = ev.map_5095 if ev else None
         m50 = ev.map_50 if ev else None
         qps = tr.throughput_qps if tr else None
-        lat = tr.latency_mean_ms if tr else None
+        lat_mean = tr.latency_mean_ms if tr else None
+        lat_med = tr.latency_median_ms if tr else None
+        p90 = tr.latency_p90_ms if tr else None
+        p95 = tr.latency_p95_ms if tr else None
+        p99 = tr.latency_p99_ms if tr else None
+        batch_sz = tr.batch_size if tr else None
+        bs_eff = int(batch_sz) if isinstance(batch_sz, int) else 1
+        ips: float | None = None
+        if qps is not None:
+            ips = bs_eff * float(qps)
         score = (
             _combined_score(m95, qps)
             if (m95 is not None and qps is not None)
@@ -546,14 +869,25 @@ def main(argv: list[str] | None = None) -> int:
                 "calibrator": meta.calibrator or "—",
                 "map5095": m95,
                 "map50": m50,
-                "qps": qps,
-                "latency_ms": lat,
+                "preprocess_ms": ev.preprocess_ms if ev else None,
                 "infer_ms": ev.infer_ms if ev else None,
+                "postprocess_ms": ev.postprocess_ms if ev else None,
+                "total_detections": ev.total_detections if ev else None,
+                "batch_size": batch_sz,
+                "ips": ips,
+                "qps": qps,
+                "latency_ms": lat_mean,
+                "latency_median_ms": lat_med,
+                "latency_p90_ms": p90,
+                "latency_p95_ms": p95,
+                "latency_p99_ms": p99,
                 "combined": score,
                 "trt_log": str(tr.path) if tr else "—",
                 "eval_log": str(ev.path) if ev else "—",
             }
         )
+
+    rows_sorted = _sort_rows_report_order(rows)
 
     def best_by(metric: str, maximize: bool) -> tuple[str | None, float | None]:
         candidates = [
@@ -569,9 +903,22 @@ def main(argv: list[str] | None = None) -> int:
             k, v = min(candidates, key=lambda x: x[1])  # type: ignore[operator]
         return str(k), float(v)  # type: ignore[arg-type]
 
+    def best_latency_row() -> tuple[str | None, float | None]:
+        """Lowest mean GPU latency (trtexec summary)."""
+        best_k, best_v = None, None
+        for r in rows:
+            lv = r.get("latency_ms")
+            if not isinstance(lv, (int, float)):
+                continue
+            lv = float(lv)
+            if best_v is None or lv < best_v:
+                best_k, best_v = str(r["config_key"]), lv
+        return best_k, best_v
+
     best_map, bv_map = best_by("map5095", True)
     best_qps, bv_qps = best_by("qps", True)
-    best_lat, bv_lat = best_by("latency_ms", False)
+    best_ips, bv_ips = best_by("ips", True)
+    best_lat_k, bv_lat = best_latency_row()
     best_combo, bv_combo = best_by("combined", True)
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -581,29 +928,85 @@ def main(argv: list[str] | None = None) -> int:
         rep.mkdir(parents=True, exist_ok=True)
         out = rep / f"trt_eval_report_{stamp}.md"
 
-    chart_rows = [r for r in rows if r.get("qps") is not None]
-    chart_rows.sort(key=lambda x: float(x["qps"] or 0), reverse=True)
-    labels = [_short_label(str(r["config_key"])) for r in chart_rows]
-    qps_vals = [float(r["qps"] or 0) for r in chart_rows]
+    thr_rows = [r for r in rows_sorted if r.get("qps") is not None]
+    thr_labels = [_chart_axis_label(r) for r in thr_rows]
+    ips_vals: list[float] = []
+    for r in thr_rows:
+        ip = r.get("ips")
+        ips_vals.append(float(ip) if isinstance(ip, (int, float)) else float("nan"))
+    lat_mean_plot: list[float] = []
+    lat_p99_plot: list[float] = []
+    for r in thr_rows:
+        m = r.get("latency_ms")
+        p9 = r.get("latency_p99_ms")
+        lat_mean_plot.append(float(m) if isinstance(m, (int, float)) else float("nan"))
+        lat_p99_plot.append(float(p9) if isinstance(p9, (int, float)) else float("nan"))
+    has_perf_chart = bool(thr_rows) and (
+        any(isinstance(r.get("latency_ms"), (int, float)) for r in thr_rows)
+        or any(isinstance(r.get("latency_p99_ms"), (int, float)) for r in thr_rows)
+    )
+    bs_set = {r.get("batch_size") for r in thr_rows if isinstance(r.get("batch_size"), int)}
+    if len(bs_set) == 1 and bs_set:
+        b0 = next(iter(bs_set))
+        perf_sub = f"IPS = batch × QPS. Batch size = {b0} (trtexec input binding)."
+    elif len(bs_set) > 1:
+        perf_sub = "IPS = batch × QPS; batch from trtexec input binding (varies per engine)."
+    else:
+        perf_sub = "IPS = batch × QPS; batch not found in log — assumed 1 for IPS."
 
-    map_rows = [r for r in rows if r.get("map5095") is not None]
-    map_rows.sort(key=lambda x: float(x["map5095"] or 0), reverse=True)
-    map_labels = [_short_label(str(r["config_key"])) for r in map_rows]
-    map_vals = [float(r["map5095"] or 0) for r in map_rows]
+    map_rows_ord = [r for r in rows_sorted if r.get("map5095") is not None]
+    map_labels = [_chart_axis_label(r) for r in map_rows_ord]
+    map_vals = [float(r["map5095"] or 0) for r in map_rows_ord]
+    det_plot: list[float] = []
+    for r in map_rows_ord:
+        td = r.get("total_detections")
+        det_plot.append(float(td) if isinstance(td, int) else float("nan"))
+    has_det_counts = any(
+        isinstance(r.get("total_detections"), int) for r in map_rows_ord
+    )
 
     out_dir = out.resolve().parent
     stem = out.stem
-    png_qps = out_dir / f"{stem}_throughput_qps.png"
+    png_perf = out_dir / f"{stem}_ips_latency.png"
     png_map = out_dir / f"{stem}_map5095.png"
-    rel_qps = png_qps.name
+    rel_perf = png_perf.name
     rel_map = png_map.name
 
-    if chart_rows:
-        _write_bar_chart_png(png_qps, "Throughput (QPS) — trt-bench", labels, qps_vals, "QPS")
-    if map_rows:
-        _write_bar_chart_png(
-            png_map, "mAP@0.5:0.95 — eval-trt (pycocotools)", map_labels, map_vals, "mAP"
+    wrote_perf_png = (
+        thr_rows
+        and has_perf_chart
+        and len(ips_vals) == len(thr_rows)
+        and len(lat_mean_plot) == len(thr_rows)
+        and len(lat_p99_plot) == len(thr_rows)
+    )
+    if wrote_perf_png:
+        _write_ips_latency_twin_png(
+            png_perf,
+            "IPS (inferences/s) vs GPU latency — trt-bench / trtexec",
+            perf_sub,
+            thr_labels,
+            ips_vals,
+            lat_mean_plot,
+            lat_p99_plot,
         )
+    if map_rows_ord and has_det_counts and len(det_plot) == len(map_vals):
+        _write_eval_map_detections_dual_axis_png(
+            png_map,
+            "mAP@0.5:0.95 & total detections (COCO eval — `Total detections` in eval log)",
+            map_labels,
+            map_vals,
+            det_plot,
+        )
+    elif map_rows_ord:
+        _write_line_chart_annotated_png(
+            png_map,
+            "mAP@0.5:0.95 (COCO eval — no `Total detections` line in logs)",
+            map_labels,
+            map_vals,
+            "mAP@0.5:0.95",
+        )
+
+    has_fp16_baseline = any(_is_fp16_baseline_row(r) for r in rows)
 
     lines: list[str] = []
     lines.append("# TensorRT bench + COCO eval — summary")
@@ -620,6 +1023,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.merge_global_logs:
         lines.append(
             "- **Note:** `--merge-global-logs` was set; session + global `artifacts/.../logs` were merged (newest timestamp per stem)."
+        )
+    if not has_fp16_baseline:
+        lines.append(
+            "- **Note:** No FP16 baseline row appears in these logs (e.g. pipeline ran with `--no-fp16-baseline`, "
+            "or only PTQ engines were built). The tables and charts list **only** the configurations found."
         )
     lines.append("")
     lines.extend(
@@ -638,9 +1046,13 @@ def main(argv: list[str] | None = None) -> int:
         )
     if best_qps:
         lines.append(f"| **Throughput** (higher QPS) | `{best_qps}` | {bv_qps:.2f} qps |")
-    if best_lat:
+    if best_ips:
         lines.append(
-            f"| **Mean latency** (lower ms, trtexec) | `{best_lat}` | {bv_lat:.4f} ms |"
+            f"| **IPS** (batch × QPS, inferences/s) | `{best_ips}` | {bv_ips:.2f} |"
+        )
+    if best_lat_k and bv_lat is not None:
+        lines.append(
+            f"| **Mean GPU latency** (lower ms, trtexec) | `{best_lat_k}` | {bv_lat:.4f} ms |"
         )
     if best_combo:
         lines.append(
@@ -654,37 +1066,109 @@ def main(argv: list[str] | None = None) -> int:
     lines.append("")
     lines.append("## Charts (PNG)")
     lines.append("")
-    if chart_rows:
-        lines.append("### Throughput (QPS) — trt-bench")
+    if wrote_perf_png:
+        lines.append("### IPS, QPS (implicit) & GPU latency — trt-bench / trtexec")
         lines.append("")
-        lines.append(f"![Throughput QPS]({rel_qps})")
+        lines.append(
+            "Primary series: **IPS** = batch × QPS (inferences/s). "
+            "Right axis: **mean** and **p99** latency (ms). QPS is listed in the throughput table below."
+        )
+        lines.append("")
+        lines.append(f"![IPS and latency]({rel_perf})")
+        lines.append("")
+    elif thr_rows:
+        lines.append(
+            "*Could not build IPS/latency chart (missing trtexec latency summary or mismatched series).*"
+        )
         lines.append("")
     else:
-        lines.append("*No throughput values found in TRT logs.*")
+        lines.append("*No trt-bench throughput found in TRT logs.*")
         lines.append("")
-    if map_rows:
-        lines.append("### mAP@0.5:0.95 — eval-trt (pycocotools)")
+    if map_rows_ord:
+        if has_det_counts:
+            lines.append("### mAP & total detections (COCO eval)")
+        else:
+            lines.append("### mAP@0.5:0.95 — eval (no `Total detections` line in logs)")
         lines.append("")
-        lines.append(f"![mAP@0.5:0.95]({rel_map})")
+        lines.append(f"![Eval mAP / detections]({rel_map})")
         lines.append("")
     else:
         lines.append("*No mAP values found in eval logs.*")
         lines.append("")
-    lines.append("## Full table")
+    lines.append("## Table: Eval (COCO / pycocotools)")
     lines.append("")
     lines.append(
-        "| Config (stem) | Precision | Calibrator | mAP@0.5:0.95 | mAP@0.5 | QPS | Latency ms (mean) | Infer ms (eval) | Combined score |"
+        "| Config (stem) | Precision | Calibrator | mAP@0.5:0.95 | mAP@0.5 | Total det. |"
     )
-    lines.append("|---|---|---:|---:|---:|---:|---:|---:|---:|")
-    for r in sorted(rows, key=lambda x: str(x["config_key"])):
-        fmt4 = lambda v: f"{v:.4f}" if isinstance(v, float) else "—"
-        fmt2 = lambda v: f"{v:.2f}" if isinstance(v, float) else "—"
+    lines.append("|---|---|---:|---:|---:|---:|")
+    fmt4 = lambda v: f"{v:.4f}" if isinstance(v, float) else "—"
+
+    def fmt_int_det(v: object) -> str:
+        if isinstance(v, int):
+            return f"{v:,}"
+        return "—"
+
+    for r in rows_sorted:
         lines.append(
             f"| `{r['config_key']}` | {r['precision']} | {r['calibrator']} | "
-            f"{fmt4(r.get('map5095'))} | {fmt4(r.get('map50'))} | {fmt2(r.get('qps'))} | "
-            f"{fmt4(r.get('latency_ms'))} | {fmt4(r.get('infer_ms'))} | {fmt4(r.get('combined'))} |"
+            f"{fmt4(r.get('map5095'))} | {fmt4(r.get('map50'))} | {fmt_int_det(r.get('total_detections'))} |"
         )
     lines.append("")
+    lines.append("## Table: Throughput & latency (trtexec summary)")
+    lines.append("")
+    lines.append(
+        "| Config (stem) | Precision | Calibrator | Batch | IPS | QPS | Mean ms | Median ms | p90 ms | p95 ms | p99 ms |"
+    )
+    lines.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    fmt2 = lambda v: f"{v:.2f}" if isinstance(v, float) else "—"
+
+    def fmt_batch(v: object) -> str:
+        if isinstance(v, int):
+            return str(v)
+        return "—"
+
+    for r in rows_sorted:
+        lines.append(
+            f"| `{r['config_key']}` | {r['precision']} | {r['calibrator']} | "
+            f"{fmt_batch(r.get('batch_size'))} | {fmt2(r.get('ips'))} | {fmt2(r.get('qps'))} | "
+            f"{fmt4(r.get('latency_ms'))} | {fmt4(r.get('latency_median_ms'))} | "
+            f"{fmt4(r.get('latency_p90_ms'))} | {fmt4(r.get('latency_p95_ms'))} | {fmt4(r.get('latency_p99_ms'))} |"
+        )
+    lines.append("")
+
+    fp16_row = next((r for r in rows_sorted if _is_fp16_baseline_row(r)), None)
+    if fp16_row:
+        others_f = [r for r in rows_sorted if r["config_key"] != fp16_row["config_key"]]
+        if others_f:
+            lines.extend(
+                _comparison_table_md(
+                    fp16_row,
+                    others_f,
+                    "Comparison vs TensorRT FP16 baseline",
+                    "FP16 TensorRT (original ONNX, `build-trt --mode fp16`)",
+                )
+            )
+
+    best_row = _pick_best_row(rows)
+    if (
+        best_row is not None
+        and len(rows) > 1
+        and not (
+            fp16_row is not None
+            and best_row["config_key"] == fp16_row["config_key"]
+        )
+    ):
+        others_b = [r for r in rows_sorted if r["config_key"] != best_row["config_key"]]
+        if others_b:
+            lines.extend(
+                _comparison_table_md(
+                    best_row,
+                    others_b,
+                    "Comparison vs best overall run",
+                    f"Best by combined score √(mAP×QPS/1000): `{best_row['config_key']}`",
+                )
+            )
+
     lines.append("## Log files used (latest per config)")
     lines.append("")
     lines.append("| Config | trt_bench log | eval log |")
@@ -698,9 +1182,9 @@ def main(argv: list[str] | None = None) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines), encoding="utf-8")
     print(f"Wrote {out}")
-    if chart_rows:
-        print(f"Wrote {png_qps}")
-    if map_rows:
+    if wrote_perf_png:
+        print(f"Wrote {png_perf}")
+    if map_rows_ord:
         print(f"Wrote {png_map}")
     return 0
 

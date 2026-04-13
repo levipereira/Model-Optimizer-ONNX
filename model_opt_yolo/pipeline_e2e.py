@@ -13,16 +13,18 @@ from model_opt_yolo.io_checks import validate_readable_file
 from model_opt_yolo.logutil import add_logging_arguments, setup_logging
 from model_opt_yolo.session_paths import (
     artifacts_root,
-    default_calib_npy_path,
     default_pipeline_e2e_session_log,
     effective_session_id,
+    pipeline_e2e_session_calib_npy_path,
+    pipeline_e2e_session_calib_prep_log,
     pipeline_e2e_session_eval_logs,
     pipeline_e2e_session_quant_logs,
+    pipeline_e2e_session_quantized_dir,
     pipeline_e2e_session_root,
+    pipeline_e2e_session_trt_engine_dir,
     pipeline_e2e_session_trt_logs,
     run_timestamp,
     safe_component,
-    trt_engine_dir,
 )
 
 # Full PTQ grid supported by ``quantize`` (fp8/int8: max|entropy; int4: awq_clip|rtn_dq).
@@ -269,8 +271,9 @@ def main(argv: list[str] | None = None) -> int:
         metavar="ID",
         help=(
             "Unique id for this run (default: SESSION_ID env var if set, else auto YYYYMMDD-HHMMSS). "
-            "All step logs and the Markdown report go under artifacts/pipeline_e2e/sessions/<id>/ "
-            "so report-runs does not merge logs from older runs. CLI overrides SESSION_ID."
+            "All pipeline-e2e outputs (calibration .npy, quantized ONNX, engines, eval JSON, trt/eval logs, "
+            "report) go under artifacts/pipeline_e2e/sessions/<id>/ — not the global artifacts/ paths used "
+            "when running calib/quantize/build-trt manually. CLI overrides SESSION_ID."
         ),
     )
     add_logging_arguments(parser)
@@ -294,6 +297,11 @@ def main(argv: list[str] | None = None) -> int:
         "session_id": session_id,
         "artifacts_root": str(artifacts_root().resolve()),
         "onnx": str(onnx_path),
+        "session_root": str(session_root.resolve()),
+        "e2e_calibration_dir": str((session_root / "calibration").resolve()),
+        "e2e_quantized_dir": str((session_root / "quantized").resolve()),
+        "e2e_trt_engine_dir": str((session_root / "trt_engine").resolve()),
+        "e2e_predictions_dir": str((session_root / "predictions").resolve()),
     }
     (session_root / "session.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
@@ -327,15 +335,22 @@ def main(argv: list[str] | None = None) -> int:
             args.autotune,
         )
 
-    # --- calib (fixed output path so later steps know the exact .npy) ---
+    # --- calib (outputs under session dir, not global artifacts/calibration) ---
     from model_opt_yolo.calib_prep import main as calib_main
 
     images_resolved = Path(args.images_dir).expanduser().resolve()
-    calib_npy = default_calib_npy_path(
+    calib_npy = pipeline_e2e_session_calib_npy_path(
+        session_id=session_id,
         images_dir_name=images_resolved.name,
         img_size=args.img_size,
         n_images=args.calibration_data_size,
         ts=session_id,
+    )
+    calib_prep_ts = run_timestamp()
+    calib_prep_log = pipeline_e2e_session_calib_prep_log(
+        session_id=session_id,
+        images_dir_name=images_resolved.name,
+        ts=calib_prep_ts,
     )
     calib_argv = [
         "--images_dir",
@@ -346,9 +361,11 @@ def main(argv: list[str] | None = None) -> int:
         str(args.img_size),
         "--output_path",
         str(calib_npy),
+        "--log-file",
+        str(calib_prep_log),
         *verbose_flag,
     ]
-    log.info("Step: calib → %s", calib_npy)
+    log.info("Step: calib → %s (log → %s)", calib_npy, calib_prep_log)
     rc = calib_main(calib_argv)
     if rc != 0:
         log.error("calib failed with exit %d", rc)
@@ -370,8 +387,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         log.info("Autotune not requested; quantizing input ONNX directly.")
 
-    quant_dir = artifacts_root() / "quantized"
-    quant_dir.mkdir(parents=True, exist_ok=True)
+    quant_dir = pipeline_e2e_session_quantized_dir(session_id)
     suffix = ".quant.onnx"
 
     from model_opt_yolo.quantize import main as quantize_main
@@ -381,6 +397,7 @@ def main(argv: list[str] | None = None) -> int:
     from model_opt_yolo.report_runs import main as report_main
 
     session_trt_logs = pipeline_e2e_session_trt_logs(session_id)
+    session_trt_engine_dir = pipeline_e2e_session_trt_engine_dir(session_id)
     session_eval_logs = pipeline_e2e_session_eval_logs(session_id)
     session_quant_logs = pipeline_e2e_session_quant_logs(session_id)
 
@@ -390,7 +407,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.no_fp16_baseline:
         fp16_ts = run_timestamp()
         fp16_stem = f"{onnx_path.stem}.fp16"
-        engine_fp16 = trt_engine_dir() / f"{fp16_stem}.engine"
+        engine_fp16 = session_trt_engine_dir / f"{fp16_stem}.engine"
         build_log_fp16 = session_trt_logs / f"build_trt_{safe_component(fp16_stem)}_{fp16_ts}.log"
         log.info("========== FP16 baseline (original ONNX, --mode fp16) ==========")
         b_fp16 = [
@@ -409,7 +426,7 @@ def main(argv: list[str] | None = None) -> int:
             *verbose_flag,
         ]
         log.info(
-            "Starting build-trt FP16 baseline (engine → %s; log → %s)",
+            "Starting build-trt FP16 baseline (engine → %s; session log → %s)",
             engine_fp16.resolve(),
             build_log_fp16.resolve(),
         )
@@ -431,6 +448,7 @@ def main(argv: list[str] | None = None) -> int:
                 engine_fp16.stat().st_size,
             )
             eval_log_fp16 = session_eval_logs / f"eval_{safe_component(fp16_stem)}_{fp16_ts}.log"
+            pred_json_fp16 = session_root / "predictions" / f"{fp16_stem}_predictions.json"
             e_fp16 = [
                 "--engine",
                 str(engine_fp16),
@@ -442,6 +460,8 @@ def main(argv: list[str] | None = None) -> int:
                 str(Path(args.annotations).expanduser().resolve()),
                 "--img-size",
                 str(args.img_size),
+                "--save-json",
+                str(pred_json_fp16),
                 "--log-file",
                 str(eval_log_fp16),
                 *verbose_flag,
@@ -519,7 +539,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             autotune_label = ""
         log.info(
-            "Starting quantize%s: ONNX out → %s (not under session dir); session log → %s",
+            "Starting quantize%s: ONNX out → %s; quantize log → %s",
             autotune_label,
             q_out.resolve(),
             q_log.resolve(),
@@ -546,6 +566,7 @@ def main(argv: list[str] | None = None) -> int:
 
         eng_stem = q_out.stem
         build_log = session_trt_logs / f"build_trt_{safe_component(eng_stem)}_{step_ts}.log"
+        engine_path = session_trt_engine_dir / f"{eng_stem}.engine"
         b_argv = [
             "--onnx",
             str(q_out),
@@ -555,13 +576,14 @@ def main(argv: list[str] | None = None) -> int:
             args.input_name,
             "--mode",
             args.build_mode,
+            "--engine-out",
+            str(engine_path),
             "--log-file",
             str(build_log),
             *verbose_flag,
         ]
-        engine_path = trt_engine_dir() / f"{eng_stem}.engine"
         log.info(
-            "Starting build-trt: engine → %s (under artifacts/trt_engine); log → %s",
+            "Starting build-trt: engine → %s; session log → %s",
             engine_path.resolve(),
             build_log.resolve(),
         )
@@ -586,6 +608,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
         eval_log = session_eval_logs / f"eval_{safe_component(eng_stem)}_{step_ts}.log"
+        pred_json = session_root / "predictions" / f"{eng_stem}_predictions.json"
         e_argv = [
             "--engine",
             str(engine_path),
@@ -597,6 +620,8 @@ def main(argv: list[str] | None = None) -> int:
             str(Path(args.annotations).expanduser().resolve()),
             "--img-size",
             str(args.img_size),
+            "--save-json",
+            str(pred_json),
             "--log-file",
             str(eval_log),
             *verbose_flag,

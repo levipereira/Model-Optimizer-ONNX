@@ -206,6 +206,65 @@ def pipeline_e2e_session_quant_logs(session_id: str) -> Path:
     return p
 
 
+def pipeline_e2e_session_calibration_dir(session_id: str) -> Path:
+    """Session directory for ``calib*.npy`` from ``pipeline-e2e`` (and optional ``calibration/logs``)."""
+    p = pipeline_e2e_session_root(session_id) / "calibration"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def pipeline_e2e_session_calib_npy_path(
+    *,
+    session_id: str,
+    images_dir_name: str,
+    img_size: int,
+    n_images: int,
+    ts: str | None = None,
+) -> Path:
+    """Calibration tensor path under ``…/sessions/<id>/calibration/`` (not global ``artifacts/calibration``)."""
+    ts = ts or run_timestamp()
+    name = "_".join(
+        [
+            "calib",
+            safe_component(images_dir_name),
+            f"sz{img_size}",
+            f"n{n_images}",
+            ts,
+        ]
+    )
+    d = pipeline_e2e_session_calibration_dir(session_id)
+    return d / f"{name}.npy"
+
+
+def pipeline_e2e_session_calib_logs_dir(session_id: str) -> Path:
+    p = pipeline_e2e_session_calibration_dir(session_id) / "logs"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def pipeline_e2e_session_calib_prep_log(
+    *, session_id: str, images_dir_name: str, ts: str | None = None
+) -> Path:
+    ts = ts or run_timestamp()
+    d = pipeline_e2e_session_calib_logs_dir(session_id)
+    name = "_".join(["calib_prep", safe_component(images_dir_name), ts])
+    return d / f"{name}.log"
+
+
+def pipeline_e2e_session_quantized_dir(session_id: str) -> Path:
+    """Quantized ONNX output directory for ``pipeline-e2e`` (under the session root)."""
+    p = pipeline_e2e_session_root(session_id) / "quantized"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def pipeline_e2e_session_trt_engine_dir(session_id: str) -> Path:
+    """Directory for ``*.engine`` (and ``*.timing.cache``) from ``pipeline-e2e``; logs live in ``…/trt_engine/logs/``."""
+    p = pipeline_e2e_session_root(session_id) / "trt_engine"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
 def default_pipeline_e2e_session_log(*, session_id: str) -> Path:
     """Main orchestrator log: ``artifacts/pipeline_e2e/sessions/<session_id>/pipeline.log``."""
     return pipeline_e2e_session_root(session_id) / "pipeline.log"

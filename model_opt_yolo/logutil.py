@@ -32,8 +32,16 @@ def setup_logging(
 ) -> logging.Logger:
     """Attach stderr and optional file handlers to logger *name*."""
     logger = logging.getLogger(name)
+    # ``pipeline-e2e`` calls ``eval_trt`` / ``build_trt`` / ``trt-bench`` / ``quantize`` ``main()``
+    # many times in one process. Without resetting, the first ``--log-file`` wins and later runs
+    # append to the same file or skip the file handler entirely (early return).
     if logger.handlers:
-        return logger
+        for h in list(logger.handlers):
+            logger.removeHandler(h)
+            try:
+                h.close()
+            except Exception:
+                pass
 
     if verbose:
         console_level = logging.DEBUG
