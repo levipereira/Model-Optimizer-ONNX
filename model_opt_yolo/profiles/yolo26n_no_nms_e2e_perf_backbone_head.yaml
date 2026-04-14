@@ -1,0 +1,37 @@
+# =============================================================================
+# YOLO26n — backbone + head Convs; neck stays higher precision (hpfp16 on CLI)
+# =============================================================================
+# Same index map as yolo26n_no_nms_e2e_perf_backbone_neck.yaml:
+#   backbone: stem + _1 … _39
+#   neck (skipped here): _40 … _75
+#   head: _76 … _101
+#
+# Two regexes → two --nodes_to_quantize entries (OR of patterns).
+#
+# Use: model-opt-yolo quantize ... --profile yolo26n_no_nms_e2e_perf_backbone_head \\
+#        --high_precision_dtype fp16 --suffix .bh.quant.onnx
+# =============================================================================
+
+version: 1
+
+name: yolo26n_no_nms_e2e_perf_backbone_head
+
+description: >
+  Whitelist backbone (_1…_39) + head (_76…_101); neck Convs excluded; same SiLU/Sigmoid/Softmax excludes as perf.
+
+defaults:
+  autotune: null
+
+modelopt:
+  include_nodes:
+    - "^node_conv2d(?:_([1-9]|[12][0-9]|3[0-9]))?$"
+    - "^node_conv2d_(?:7[6-9]|8[0-9]|9[0-9]|10[01])$"
+
+  exclude_op_types:
+    - Sigmoid
+    - Softmax
+
+  exclude_nodes:
+    - "^node_silu(_[0-9]+)?$"
+
+  extra_args: []

@@ -15,6 +15,8 @@ import shutil
 import site
 import subprocess
 import sys
+import math
+import statistics
 from pathlib import Path
 from typing import Any
 
@@ -123,6 +125,59 @@ def _verify_trex_import() -> bool:
         _last_trex_import_error = str(e) or repr(e)
         return False
     return True
+
+
+def _apply_trex_df_fillna_patch(logger: logging.Logger | None = None) -> None:
+    """Work around TREx ``df_preprocessing.__fix_columns_types`` calling ``df.fillna(0)`` on the full frame.
+
+    Newer TensorRT ``exportLayerInfo`` JSON includes string columns (pandas Arrow ``string`` dtype).
+    ``fillna(0)`` then raises ``TypeError`` (invalid fill for ``str``). We mirror TREx's int-column
+    handling, then fill NaNs per column: numeric → ``0``, boolean → ``False``, else → ``\"\"``.
+
+    Set ``MODELOPT_TREX_NO_DF_PATCH=1`` to skip and use upstream TREx behavior.
+    """
+    if os.environ.get("MODELOPT_TREX_NO_DF_PATCH") == "1":
+        return
+    import pandas as pd
+    import trex.df_preprocessing as dfp
+
+    # Keep in sync with ``trex.df_preprocessing.__fix_columns_types`` int list.
+    int_cols = (
+        "Groups",
+        "OutMaps",
+        "HasBias",
+        "HasReLU",
+        "AllowSparse",
+        "NbInputArgs",
+        "NbOutputVars",
+        "NbParams",
+        "NbLiterals",
+    )
+
+    def _fix_columns_types_safe(df: Any) -> None:
+        for col in int_cols:
+            try:
+                df[col] = df[col].fillna(value=0)
+                df[col] = df[col].astype("int32")
+            except KeyError:
+                pass
+        for col in list(df.columns):
+            if col in int_cols:
+                continue
+            s = df[col]
+            try:
+                if pd.api.types.is_numeric_dtype(s):
+                    df[col] = s.fillna(0)
+                elif pd.api.types.is_bool_dtype(s):
+                    df[col] = s.fillna(False)
+                else:
+                    df[col] = s.fillna("")
+            except (TypeError, ValueError):
+                pass
+
+    dfp.__fix_columns_types = _fix_columns_types_safe
+    if logger is not None:
+        logger.debug("Patched trex.df_preprocessing.__fix_columns_types (string-safe fillna).")
 
 
 def _trex_env_diagnostic_lines() -> list[str]:
@@ -244,15 +299,33 @@ def _profile_argv(
     ]
 
 
-def _load_engine_plan(graph_json: Path, profile_json: Path, name: str) -> Any:
+def _optional_metadata_paths(
+    profile_json: Path, engine_path: Path
+) -> tuple[str | None, str | None]:
+    """TREx can enrich EnginePlan when trtexec (or tooling) emitted metadata JSON next to the engine."""
+    prof_meta: str | None = None
+    cand_p = Path(str(profile_json).replace(".profile.json", ".profile.metadata.json"))
+    if cand_p.is_file():
+        prof_meta = str(cand_p.resolve())
+    build_meta: str | None = None
+    cand_b = Path(str(engine_path) + ".build.metadata.json")
+    if cand_b.is_file():
+        build_meta = str(cand_b.resolve())
+    return prof_meta, build_meta
+
+
+def _load_engine_plan(
+    graph_json: Path, profile_json: Path, name: str, *, engine_path: Path
+) -> Any:
     from trex.engine_plan import EnginePlan
 
+    prof_meta, build_meta = _optional_metadata_paths(profile_json, engine_path)
     return EnginePlan(
         str(graph_json.resolve()),
         str(profile_json.resolve()),
+        profiling_metadata_file=prof_meta,
+        build_metadata_file=build_meta,
         name=name,
-        profiling_metadata_file=None,
-        build_metadata_file=None,
     )
 
 
@@ -304,6 +377,197 @@ def _compare_plans_to_csv(
     logger.info("Wrote comparison table: %s", csv_path.resolve())
 
 
+def _timing_stats_ms(latencies: list[float]) -> dict[str, float | int]:
+    if not latencies:
+        return {}
+    xs = sorted(latencies)
+    n = len(xs)
+
+    def percentile(p: float) -> float:
+        if n == 1:
+            return float(xs[0])
+        k = (n - 1) * p / 100.0
+        f = math.floor(k)
+        c = math.ceil(k)
+        if f == c:
+            return float(xs[int(k)])
+        return float(xs[f] * (c - k) + xs[c] * (k - f))
+
+    return {
+        "samples": n,
+        "min_ms": float(xs[0]),
+        "max_ms": float(xs[-1]),
+        "mean_ms": float(statistics.mean(xs)),
+        "median_ms": float(statistics.median(xs)),
+        "p99_ms": percentile(99.0),
+    }
+
+
+def _markdown_kv_section(title: str, d: dict[str, Any]) -> str:
+    lines = [f"## {title}", ""]
+    if not d:
+        lines.append("*No data.*")
+        lines.append("")
+        return "\n".join(lines)
+    for k, v in d.items():
+        vs = str(v).strip()
+        vs = vs.replace("\n", "<br/>")
+        lines.append(f"- **{k}:** {vs}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _df_to_pipe_markdown(df: Any, *, max_rows: int | None = None) -> str:
+    import pandas as pd
+
+    if max_rows is not None:
+        df = df.head(max_rows)
+    if df is None or len(df) == 0:
+        return "*Empty table.*\n"
+    cols = [str(c) for c in df.columns]
+    esc = []
+    for c in cols:
+        s = c.replace("|", "\\|")
+        esc.append(s)
+    header = "| " + " | ".join(esc) + " |"
+    sep = "| " + " | ".join("---" for _ in cols) + " |"
+    out_lines = [header, sep]
+    for _, row in df.iterrows():
+        cells = []
+        for c in df.columns:
+            v = row[c]
+            if pd.isna(v):
+                s = ""
+            else:
+                s = str(v)
+            s = s.replace("|", "\\|")
+            if len(s) > 240:
+                s = s[:237] + "..."
+            cells.append(s)
+        out_lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(out_lines) + "\n"
+
+
+def _write_engine_report_markdown(
+    plan: Any,
+    *,
+    timing_json: Path | None,
+    out_md: Path,
+    logger: logging.Logger,
+    max_layer_rows: int,
+) -> None:
+    """Markdown analogue of TREx ``engine_report_card.ipynb`` (text tables + summaries)."""
+    from trex.df_preprocessing import clean_for_display
+    from trex.engine_plan import summary_dict
+    from trex.misc import group_count, group_sum_attr
+    from trex import parser
+
+    lines: list[str] = [
+        "# TensorRT Engine Report Card",
+        "",
+        "Text summary aligned with the TREx notebook "
+        "(`engine_report_card.ipynb`): plan summary, engine timings, and layer tables. "
+        "Interactive plots (Plotly) from the notebook are not reproduced here.",
+        "",
+    ]
+
+    lines.append(_markdown_kv_section("Model", summary_dict(plan)))
+
+    lines.append(_markdown_kv_section("Device properties", getattr(plan, "device_properties", {}) or {}))
+    lines.append(_markdown_kv_section("Builder configuration", getattr(plan, "builder_cfg", {}) or {}))
+    lines.append(_markdown_kv_section("Performance summary (metadata)", getattr(plan, "performance_summary", {}) or {}))
+
+    latencies: list[float] = []
+    if timing_json is not None and timing_json.is_file():
+        try:
+            latencies = list(parser.read_timing_file(str(timing_json.resolve())))
+        except Exception as e:
+            logger.warning("Could not read timing JSON for report: %s", e)
+    if latencies:
+        st = _timing_stats_ms(latencies)
+        lines.append("## Engine timing samples (`exportTimes`)")
+        lines.append("")
+        lines.append(
+            "End-to-end latency samples from `trtexec --exportTimes` (not per-layer profile). "
+            "Per-layer **Average time** below is the sum of layer averages when profiled separately."
+        )
+        lines.append("")
+        for k in ("samples", "min_ms", "max_ms", "mean_ms", "median_ms", "p99_ms"):
+            if k in st:
+                lines.append(f"- **{k}:** {st[k]:.6f}" if k != "samples" else f"- **{k}:** {int(st[k])}")
+        lines.append("")
+    else:
+        lines.append("## Engine timing samples")
+        lines.append("")
+        lines.append("*No timing JSON or empty file — skipped.*")
+        lines.append("")
+
+    df = plan.df
+    lines.append("## Latency by layer type")
+    lines.append("")
+    by_type = (
+        df.groupby("type")[["latency.pct_time", "latency.avg_time"]]
+        .sum()
+        .reset_index()
+        .sort_values("latency.pct_time", ascending=False)
+    )
+    lines.append(_df_to_pipe_markdown(by_type))
+    lines.append("")
+
+    lines.append("## Top layers by % of total time")
+    lines.append("")
+    top = df.sort_values("latency.pct_time", ascending=False)[
+        ["Name", "type", "precision", "latency.pct_time", "latency.avg_time"]
+    ].head(min(25, len(df)))
+    lines.append(_df_to_pipe_markdown(top))
+    lines.append("")
+
+    lines.append("## Latency rollup by precision")
+    lines.append("")
+    prec_sum = group_sum_attr(df, "precision", "latency.pct_time")
+    prec_cnt = group_count(df, "precision")
+    prec_merged = prec_sum.merge(prec_cnt, on="precision", how="outer").sort_values(
+        "latency.pct_time", ascending=False
+    )
+    lines.append(_df_to_pipe_markdown(prec_merged))
+    lines.append("")
+
+    if "tactic" in df.columns:
+        lines.append("## Tactics (layer counts)")
+        lines.append("")
+        tact = group_count(df, "tactic").sort_values("count", ascending=False)
+        lines.append(_df_to_pipe_markdown(tact.head(40)))
+        lines.append("")
+
+    lines.append("## Memory footprint (per layer, top by total footprint)")
+    lines.append("")
+    mem_cols = [c for c in ("Name", "type", "weights_size", "total_io_size_bytes", "total_footprint_bytes") if c in df.columns]
+    if mem_cols:
+        mem = df.sort_values("total_footprint_bytes", ascending=False)[mem_cols].head(25)
+        lines.append(_df_to_pipe_markdown(mem))
+        lines.append("")
+
+    lines.append("## Layer table (cleaned)")
+    lines.append("")
+    try:
+        cleaned = clean_for_display(df)
+    except Exception as e:
+        logger.warning("clean_for_display failed, using raw df: %s", e)
+        cleaned = df
+    n = len(cleaned)
+    lines.append(
+        f"Showing up to **{max_layer_rows}** of **{n}** rows "
+        f"(see `--engine-report-max-layer-rows`)."
+    )
+    lines.append("")
+    lines.append(_df_to_pipe_markdown(cleaned, max_rows=max_layer_rows))
+    lines.append("")
+
+    out_md.parent.mkdir(parents=True, exist_ok=True)
+    out_md.write_text("\n".join(lines), encoding="utf-8")
+    logger.info("Engine report card (Markdown): %s", out_md.resolve())
+
+
 def _write_run_readme(
     run_dir: Path,
     *,
@@ -348,6 +612,8 @@ def _process_one_mode(
     extra: list[str],
     logger: logging.Logger,
     graph_fmt: str | None,
+    engine_report_md: Path | None = None,
+    engine_report_max_layer_rows: int = 40,
 ) -> tuple[Any | None, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     eng, graph_j, prof_j, timing_j, _ = _engine_paths(
@@ -390,10 +656,22 @@ def _process_one_mode(
         return None, out_dir
 
     try:
-        plan = _load_engine_plan(graph_j, prof_j, name=plan_name)
+        plan = _load_engine_plan(graph_j, prof_j, name=plan_name, engine_path=eng)
     except Exception as e:
         logger.exception("Failed to load EnginePlan: %s", e)
         return None, out_dir
+
+    if engine_report_md is not None:
+        try:
+            _write_engine_report_markdown(
+                plan,
+                timing_json=timing_j,
+                out_md=engine_report_md,
+                logger=logger,
+                max_layer_rows=engine_report_max_layer_rows,
+            )
+        except Exception as e:
+            logger.warning("Could not write engine report Markdown: %s", e)
 
     try:
         import json
@@ -425,12 +703,11 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Build a TensorRT engine from ONNX, profile with trtexec (layer JSON, timing), "
-            "and optionally render a TREx layer graph. "
-            "To compare plans, pass a second ONNX (--compare-onnx), e.g. FP/FP16 vs PTQ quantized, "
-            "or two different quantized exports — not the same file with two builder modes. "
-            "Outputs go under artifacts/trex/runs/ (or pipeline session trex/). "
-            "Requires the trex Python package (Docker image with /workspace/TREx)."
+            "Build a TensorRT engine from ONNX, profile with trtexec (layer JSON, timing). "
+            "Pick at most one mode: --compare (two ONNX → CSV), --graph (one ONNX → plan graph + "
+            "timing JSON), --report (one ONNX → Markdown report), or none (profile JSON only). "
+            "Modes are mutually exclusive. Outputs go under artifacts/trex/runs/ (or pipeline "
+            "session trex/). Requires the trex Python package (Docker image with /workspace/TREx)."
         )
     )
     parser.add_argument(
@@ -447,14 +724,19 @@ def main(argv: list[str] | None = None) -> int:
         help="trtexec builder mode for --onnx (same semantics as build-trt).",
     )
     parser.add_argument(
+        "--compare",
+        action="store_true",
+        help=(
+            "Compare mode (exclusive): two ONNX models via --compare-onnx; primary/, compare/, "
+            "and compare_layers__*.csv only — no graph or report."
+        ),
+    )
+    parser.add_argument(
         "--compare-onnx",
         type=str,
         default=None,
         metavar="PATH",
-        help=(
-            "Optional second ONNX to compare (different graph), e.g. non-quantized vs quantized, "
-            "or int8 vs fp8. Builds/profiles both and writes compare_layers__*.csv."
-        ),
+        help="Second ONNX (different graph); only used with --compare.",
     )
     parser.add_argument(
         "--compare-onnx-mode",
@@ -485,16 +767,50 @@ def main(argv: list[str] | None = None) -> int:
         help="ONNX input tensor name for shapes.",
     )
     parser.add_argument(
+        "--graph",
+        action="store_true",
+        help=(
+            "Graph mode (exclusive, single --onnx): TREx Dot plan graph plus timing/profile JSON "
+            "from trtexec — no report or compare."
+        ),
+    )
+    parser.add_argument(
         "--graph-format",
         type=str,
         default="svg",
         choices=("svg", "png", "pdf"),
-        help="Graphviz output format for the engine plan (requires TREx graphing + graphviz).",
+        help="Format when --graph is set (default: svg).",
     )
     parser.add_argument(
         "--no-graph",
         action="store_true",
-        help="Skip TREx Dot graph generation.",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--report",
+        action="store_true",
+        help=(
+            "Report mode (exclusive, single --onnx): Engine Report Card Markdown only — "
+            "no graph or compare."
+        ),
+    )
+    parser.add_argument(
+        "--engine-report-md",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="PATH",
+        help=(
+            "With --report only: optional path for engine_report_card.md "
+            "(default: under mode__<mode>/)."
+        ),
+    )
+    parser.add_argument(
+        "--engine-report-max-layer-rows",
+        type=int,
+        default=40,
+        metavar="N",
+        help="Max rows for the cleaned layer table when --report is used (default: 40).",
     )
     parser.add_argument(
         "--output-dir",
@@ -528,6 +844,18 @@ def main(argv: list[str] | None = None) -> int:
             pt = pt[1:]
         extra.extend(pt)
 
+    if args.engine_report_md is not None and not args.report:
+        print("--engine-report-md requires --report.", file=sys.stderr)
+        return 2
+
+    exclusive_modes = int(bool(args.compare)) + int(bool(args.graph)) + int(bool(args.report))
+    if exclusive_modes > 1:
+        print(
+            "Use at most one of --compare, --graph, or --report.",
+            file=sys.stderr,
+        )
+        return 2
+
     err = validate_readable_file(args.onnx, label="Primary ONNX model")
     if err:
         print(err, file=sys.stderr)
@@ -535,6 +863,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.compare_onnx_mode and not args.compare_onnx:
         print(
             "--compare-onnx-mode requires --compare-onnx.",
+            file=sys.stderr,
+        )
+        return 2
+    if args.compare and not args.compare_onnx:
+        print("--compare requires --compare-onnx PATH.", file=sys.stderr)
+        return 2
+    if args.compare_onnx and not args.compare:
+        print(
+            "--compare-onnx requires --compare (e.g. ... --compare --compare-onnx PATH).",
             file=sys.stderr,
         )
         return 2
@@ -595,7 +932,20 @@ def main(argv: list[str] | None = None) -> int:
             log.error("%s", line)
         return 127
 
-    graph_fmt = None if args.no_graph else args.graph_format
+    _apply_trex_df_fillna_patch(log)
+
+    if args.graph and args.no_graph:
+        print("Use only one of --graph or --no-graph.", file=sys.stderr)
+        return 2
+    graph_fmt: str | None
+    if args.compare:
+        graph_fmt = None
+    elif args.graph:
+        graph_fmt = args.graph_format
+    else:
+        graph_fmt = None
+
+    want_report = bool(args.report)
 
     label_a = safe_component(args.mode, 32)
     plan_name_a = f"{onnx_stem}__{args.mode}"
@@ -603,6 +953,17 @@ def main(argv: list[str] | None = None) -> int:
         primary_dir = run_dir / "primary"
     else:
         primary_dir = run_dir / f"mode__{label_a}"
+
+    engine_report_md_primary: Path | None = None
+    if want_report:
+        if args.engine_report_md is not None:
+            if args.engine_report_md == "":
+                engine_report_md_primary = primary_dir / "engine_report_card.md"
+            else:
+                engine_report_md_primary = Path(args.engine_report_md).expanduser().resolve()
+        else:
+            engine_report_md_primary = primary_dir / "engine_report_card.md"
+
     plan_a, _ = _process_one_mode(
         onnx_path=onnx_path,
         out_dir=primary_dir,
@@ -616,6 +977,8 @@ def main(argv: list[str] | None = None) -> int:
         extra=extra,
         logger=log,
         graph_fmt=graph_fmt,
+        engine_report_md=engine_report_md_primary,
+        engine_report_max_layer_rows=args.engine_report_max_layer_rows,
     )
 
     compare_dir: Path | None = None
@@ -639,7 +1002,9 @@ def main(argv: list[str] | None = None) -> int:
             mode=mode_b,
             extra=extra,
             logger=log,
-            graph_fmt=graph_fmt,
+            graph_fmt=None,
+            engine_report_md=None,
+            engine_report_max_layer_rows=args.engine_report_max_layer_rows,
         )
         if plan_a is not None and plan_b is not None:
             csv_file_name = (

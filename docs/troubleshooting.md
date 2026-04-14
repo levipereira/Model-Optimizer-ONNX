@@ -18,6 +18,16 @@
 
 ---
 
+## Quantized engine slower than FP16 (latency / reformats)
+
+**Symptom:** TensorRT **int8/fp8** engine from PTQ has **higher latency** or **more reformat** / cast-like layers than the **FP16** baseline, even though raw int8 compute is cheaper.
+
+**Why:** Q/DQ placement changes fusion; some ops become **slower** when quantized, and extra **layout/dtype transitions** can dominate.
+
+**What to do:** Follow the iterative loop in [PTQ performance workflow](quantization-performance-workflow.md): **`trt-bench`** and **`trex-analyze`** to find hot layers, then tighten scope with **`quantize --profile`** (YAML rules on the **quantized** graph’s node names / op types) and/or **`quantize --autotune`** for int8. Rebuild the engine after each PTQ change.
+
+---
+
 ## TensorRT `trtexec`: `QuantizeLinear` / `convertAxis` / `nbDims (0)`
 
 **Symptom (example):** Parsing fails on a **`QuantizeLinear`** node with:
@@ -53,9 +63,9 @@
 
 **Symptom:** `infer_shapes` / ONNX shape inference errors after PTQ.
 
-**Cause:** Model Optimizer default **`fp16`** post-pass can break dynamic detection heads.
+**Cause:** Model Optimizer’s FP16 post-pass for non-quantized ops can break some dynamic detection heads.
 
-**Fix:** This project defaults **`--high_precision_dtype fp32`** in `model-opt-yolo quantize`. Use `fp16` only if the graph supports it.
+**Fix:** `model-opt-yolo quantize` defaults **`--high_precision_dtype fp16`**. If quantization fails, retry with **`--high_precision_dtype fp32`**.
 
 ---
 
@@ -95,6 +105,16 @@ trex --help
 
 ---
 
+## `trex-analyze`: EnginePlan / `fillna` on string columns
+
+**Symptom:** `TypeError: Invalid value '0' for dtype 'str'` (or similar) inside `trex.df_preprocessing` when building `EnginePlan` from `trtexec` layer JSON — often with **newer TensorRT** exports or **INT4 / Q/DQ** graphs.
+
+**Cause:** Upstream TREx ends `__fix_columns_types` with `df.fillna(0)` on the **entire** frame. Pandas **string** / Arrow columns cannot be filled with the integer `0`.
+
+**Fix:** **`trex-analyze`** patches `trex.df_preprocessing.__fix_columns_types` at import time so NaNs are filled per dtype (numeric → `0`, string-like → `""`, bool → `False`). Set **`MODELOPT_TREX_NO_DF_PATCH=1`** only to disable the patch and use unmodified TREx (for debugging).
+
+---
+
 ## Further detail
 
-See the in-repo skill **modelopt-troubleshooting** (`.cursor/skills/modelopt-troubleshooting/SKILL.md`) for extended diagnostics and environment checks.
+See the in-repo Agent Skill **modelopt-troubleshooting** ([`skills/modelopt-troubleshooting/SKILL.md`](../skills/modelopt-troubleshooting/SKILL.md)) for extended diagnostics and environment checks.

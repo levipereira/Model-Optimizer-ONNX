@@ -16,7 +16,7 @@ model-opt-yolo --help
 | `eval-trt` | COCO mAP on TensorRT engines — **`--output-format`** chooses `onnx_trt` (four tensors), Ultralytics single-tensor, or DeepStream-Yolo |
 | `report-runs` | Aggregate `trt-bench` / `eval-trt` logs into a Markdown report |
 | `pipeline-e2e` | Full run: calib → FP16 baseline → quantize → build-trt → eval-trt → trt-bench → report (optional `--autotune`, `--quant-matrix`) |
-| `trex-analyze` | `trtexec` build + profile → layer/timing JSON, optional TREx plan graph (SVG/PNG); optional **`--compare-onnx`** for two different ONNX files + layer CSV (needs **`trex`** / Docker TREx) |
+| `trex-analyze` | `trtexec` build + profile; pick **one** of **`--compare`**, **`--graph`**, **`--report`**, or none (needs **`trex`** / Docker TREx) |
 
 ---
 
@@ -66,8 +66,9 @@ Runs ONNX PTQ via Model Optimizer.
 | `--output_dir` | Output directory (default: `<artifacts root>/quantized`; root is `cwd/artifacts` or `MODELOPT_ARTIFACTS_ROOT`) |
 | `--quantize_mode` | `fp8`, `int8`, `int4` |
 | `--calibration_method` | e.g. `entropy`, `max` (mode-dependent) |
-| `--high_precision_dtype` | Default **`fp32`** in this project (avoids many YOLO `infer_shapes` issues); `fp16` optional |
+| `--high_precision_dtype` | Default **`fp16`** (aligns with TensorRT mixed precision); use **`fp32`** if PTQ `shape_inference` fails on your graph |
 | `--autotune` | Q/DQ placement tuning via TensorRT timing (`quick` \| `default` \| `extensive`). Use with **int8**; **fp8** + autotune often fails on YOLO-style graphs (operator coverage). **int4** ignores autotune. Needs GPU + TensorRT. |
+| `--profile` | YAML file (built-in name or path) with Model Optimizer include/exclude rules (`op_types_to_*`, `nodes_to_*`, optional `defaults.autotune`, …). Shipped examples: `ultralytics_yolo26_flexible`, `matmul_fp_exclude` under `model_opt_yolo/profiles/`. Requires **PyYAML**. See [PTQ performance workflow](quantization-performance-workflow.md). |
 | `--suffix` | Output suffix (default `.quant.onnx`) |
 
 **FP8 hardware:** `--quantize_mode fp8` requires a **CUDA GPU with compute capability ≥ 8.9** (FP8 tensor cores). Examples: **Ada Lovelace** (RTX 4090, 4080, 4070, …) — CC 8.9; **Hopper** (H100, H200) — CC 9.0; **Blackwell** (B200, RTX 5090, 5080, …) — CC 10.0+.
@@ -185,7 +186,7 @@ Runs **`trtexec`** to compile an ONNX file into a TensorRT **`.engine`**. Requir
 | `--batch` | Batch size for shapes (see modes below; default `1`) |
 | `--input-name` | Input tensor name for `--minShapes` / `--optShapes` / `--maxShapes` (default `images`) |
 | `--mode` | `strongly-typed` (default), `best`, `fp16`, or `fp16-int8` |
-| `--engine-out` | Output `.engine` path (default: `<artifacts>/trt_engine/<onnx-stem>.engine`) |
+| `--engine-out` | Output `.engine` path (default: `<artifacts>/trt_engine/<onnx-stem>.b<batch>_i<img-size>.engine` so different batch/size builds do not overwrite) |
 | `--timing-cache` | Timing cache file (default: `<engine>.timing.cache`) |
 | `--session-id` | Optional id: default logs go under `artifacts/pipeline_e2e/sessions/<id>/trt_engine/logs/` (for `report-runs`; ignored if `--log-file` is set). If omitted, **`SESSION_ID`** is used when set. |
 | `--log-file`, `-v` | Logging (default log under `<artifacts>/trt_engine/logs/build_trt_*.log`, or session dir with `--session-id`) |
@@ -233,9 +234,13 @@ model-opt-yolo build-trt --onnx model.onnx --mode fp16-int8 --img-size 640
 
 End-to-end **TensorRT Engine Explorer (TREx)** workflow for **one ONNX** and a **`build-trt`-style `--mode`**: runs **`trtexec`** twice — **build** (with **`--profilingVerbosity=detailed`**, **`--exportLayerInfo`**, **`--dumpLayerInfo`**) and **profile** (**`--loadEngine`**, **`--exportTimes`**, **`--exportProfile`**, **`--exportLayerInfo`**, CUDA graph + separate profile run, matching the upstream TREx `process_engine` pattern). Writes everything under **`artifacts/trex/runs/<stem>_<mode>_<timestamp>/`** (or **`artifacts/pipeline_e2e/sessions/<id>/trex/…`** with **`--session-id`**).
 
-**Comparison** is for **two different ONNX graphs** (e.g. FP16 export vs PTQ `*.quant.onnx`, or two quantized variants). Pass **`--compare-onnx PATH`**; optional **`--compare-onnx-mode`** sets the second builder mode (defaults to **`--mode`**). Outputs use **`primary/`** and **`compare/`** subfolders plus **`compare_layers__*.csv`**. Comparing the **same** ONNX with two **`trtexec`** modes only is not the intended workflow — use two exports instead.
+**Modes are mutually exclusive** — use **at most one** of **`--compare`**, **`--graph`**, **`--report`**, or **none** (profile JSON / layer info only):
 
-Requires **`trex`**. On the Docker image, TREx is in **`env_trex`** (not the same Python as **`quantize`** / **`build-trt`**); **`trex-analyze`** first adds **`$TREX_VENV/.../site-packages`** to **`sys.path`**, then **re-executes** with **`$TREX_VENV/bin/python`** only if **trex** is still missing (override **`TREX_VENV`**, disable re-exec with **`MODELOPT_TREX_NO_REEXEC=1`**). Locally, use a **dedicated venv** for **`trt-engine-explorer`** or install **`model-opt-yolo`** into that venv too. **Graphviz** (`dot`) must be on **`PATH`** for **`--graph-format`**.
+- **`--compare`** with **`--compare-onnx PATH`** — **two ONNX models**: **`primary/`**, **`compare/`**, and **`compare_layers__*.csv`** only (no graph, no report). Optional **`--compare-onnx-mode`** sets the second builder mode (defaults to **`--mode`**). **`--compare-onnx`** requires **`--compare`**. Comparing the **same** ONNX with two **`trtexec`** modes only is not the intended workflow — use two exports instead.
+- **`--graph`** — **single `--onnx`**: TREx **`DotGraph`** plus trtexec timing/profile JSON; format via **`--graph-format`** (`svg` default, or `png` / `pdf`). Requires **Graphviz** (`dot`) on **`PATH`**. No report or second ONNX.
+- **`--report`** — **single `--onnx`**: Markdown “Engine Report Card” only (`engine_report_card.md` under **`mode__<mode>/`** unless **`--engine-report-md [PATH]`**). **`--engine-report-max-layer-rows`** limits the layer table. **`--engine-report-md`** requires **`--report`**. No graph or compare.
+
+Requires **`trex`**. On the Docker image, TREx is in **`env_trex`** (not the same Python as **`quantize`** / **`build-trt`**); **`trex-analyze`** first adds **`$TREX_VENV/.../site-packages`** to **`sys.path`**, then **re-executes** with **`$TREX_VENV/bin/python`** only if **trex** is still missing (override **`TREX_VENV`**, disable re-exec with **`MODELOPT_TREX_NO_REEXEC=1`**). Locally, use a **dedicated venv** for **`trt-engine-explorer`** or install **`model-opt-yolo`** into that venv too.
 
 **Common arguments**
 
@@ -243,10 +248,14 @@ Requires **`trex`**. On the Docker image, TREx is in **`env_trex`** (not the sam
 |----------|-------------|
 | `--onnx` | Primary `.onnx` (**required**) |
 | `--mode` | Same as **`build-trt`** for **`--onnx`**: `strongly-typed`, `best`, `fp16`, `fp16-int8` |
-| `--compare-onnx` | Optional second `.onnx` (must differ from **`--onnx`** after path resolution) |
+| `--compare` | Enable two-plan comparison (requires **`--compare-onnx`**) |
+| `--compare-onnx` | Second `.onnx` (must differ from **`--onnx`** after path resolution); only with **`--compare`** |
 | `--compare-onnx-mode` | Builder mode for **`--compare-onnx`** (default: same as **`--mode`**) |
 | `--img-size`, `--batch`, `--input-name` | Shape profile (defaults match **`build-trt`**) |
-| `--graph-format` | `svg` (default), `png`, or `pdf` for the TREx **`DotGraph`** plan diagram; **`--no-graph`** skips |
+| `--graph` | Emit TREx plan graph (**`--graph-format`**: `svg`, `png`, or `pdf`) |
+| `--report` | Write Engine Report Card Markdown; see **`--engine-report-md`** |
+| `--engine-report-md` | Optional primary report path when using **`--report`** (deprecated without **`--report`**) |
+| `--engine-report-max-layer-rows` | Max rows in the layer table when **`--report`** is used (default: `40`) |
 | `--output-dir` | Force run directory (default auto under **`artifacts/trex/runs/`**) |
 | `--session-id` | Session-scoped output under **`pipeline_e2e/sessions/<id>/trex/`** |
 | `--log-file`, `-v` | Logging (default: **`trex_analyze.log`** inside the run directory) |
@@ -256,9 +265,15 @@ Requires **`trex`**. On the Docker image, TREx is in **`env_trex`** (not the sam
 Extra **`trtexec`** tokens after **`--`** are appended to **both** the build and profile commands. **`trex-analyze`** does not set **`--memPoolSize`**; TensorRT defaults apply unless you pass e.g. **`-- --memPoolSize=workspace:8192MiB`**.
 
 ```bash
+# Profile / layer JSON only (no --graph, --report, or --compare)
 model-opt-yolo trex-analyze --onnx models/yolo.onnx --mode strongly-typed --img-size 640
-model-opt-yolo trex-analyze --onnx models/yolo_fp16.onnx --mode fp16 \\
-  --compare-onnx artifacts/quantized/yolo.int8.entropy.quant.onnx --compare-onnx-mode strongly-typed --img-size 640
+
+# One mode per invocation
+model-opt-yolo trex-analyze --onnx models/yolo.onnx --mode strongly-typed --img-size 640 --graph
+model-opt-yolo trex-analyze --onnx models/yolo.onnx --mode strongly-typed --img-size 640 --report
+model-opt-yolo trex-analyze --onnx models/yolo_fp16.onnx --mode fp16 --img-size 640 \\
+  --compare --compare-onnx artifacts/quantized/yolo.int8.entropy.quant.onnx \\
+  --compare-onnx-mode strongly-typed
 ```
 
 ---
@@ -338,13 +353,16 @@ model-opt-yolo eval-trt --output-format deepstream_yolo --output-tensor output -
 
 ## `model-opt-yolo pipeline-e2e`
 
-Orchestrates **calib** → **FP16 baseline** on the original ONNX (`build-trt --mode fp16` → **eval-trt** → **trt-bench**) → **quantize** → **build-trt** → **eval-trt** → **trt-bench** (per combo) → **report-runs** under a session id (logs under `artifacts/pipeline_e2e/sessions/<id>/`). The FP16 run uses engine stem `<onnx-stem>.fp16` so the report can compare **FP16 TensorRT** vs **quantized** engines.
+Orchestrates **calib** → **FP16 baseline** on the original ONNX (`build-trt --mode fp16` → **eval-trt** → **trt-bench**) → **quantize** → **build-trt** → **eval-trt** → **trt-bench** (per combo) → **report-runs** under a session id (logs under `artifacts/pipeline_e2e/sessions/<id>/`). Engines use basename `<stem>.b<batch>_i<img-size>.engine` (e.g. `<onnx-stem>.fp16.b1_i640.engine` for the FP16 baseline) so the report can compare **FP16 TensorRT** vs **quantized** engines without clobbering across shapes.
 
 | Argument | Notes |
 |----------|--------|
 | `--onnx` | Input FP32 ONNX (**required**) |
+| `--batch` | Passed to **build-trt** (default `1`); included in the default engine filename (`bB_iN`). |
 | `--session-id` | Session directory name under `artifacts/pipeline_e2e/sessions/`. Default: **`SESSION_ID`** env var if set, else timestamp. CLI overrides **`SESSION_ID`**. |
 | `--quant-matrix` | **SPEC** string: default **`int8.entropy`**. Keyword **`all`** = full 6-combo grid. **`mode.all`** = both methods for `int8`, `fp8`, or `int4`. **`mode.method`** = one run. Comma-separated = union (e.g. `int8.all,fp8.entropy`). Details: [Workflow](workflow.md). **FP8** combos need a GPU with **CC ≥ 8.9** (see **FP8 hardware** under [`quantize`](#model-opt-yolo-quantize)). |
+| `--quantize-profile` | Optional built-in name or path to a YAML file — passed to **each** `quantize` as **`--profile`** (same rules for every combo). See [PTQ performance workflow](quantization-performance-workflow.md#finding-the-best-mode-or-method-with-pipeline-e2e). |
+| `--high-precision-dtype` | **`fp16`** (default) \| **`fp32`** \| **`bf16`** — forwarded to every `quantize` (`--high_precision_dtype`). |
 | `--autotune` | Same presets as `quantize`. **int8** steps receive `--autotune` when set; **fp8** steps always run **standard PTQ** (no `--autotune` passed). **`int4`** receives the flag but Model Optimizer **ignores** integrated autotune for int4. |
 | `--continue-on-error` | Continue after a failed combo |
 | `--no-fp16-baseline` | Skip the FP16 baseline on the original ONNX (only run PTQ combos) |
@@ -356,17 +374,17 @@ See `model-opt-yolo pipeline-e2e --help` for image paths, `--input-name`, bench 
 
 ## `model-opt-yolo report-runs`
 
-Scans log directories and writes a Markdown report with tables plus **PNG** bar charts (throughput and mAP) next to the `.md` file (`<stem>_throughput_qps.png`, `<stem>_map5095.png`). Used standalone or at the end of `pipeline-e2e`.
+Scans log directories and writes a Markdown report with tables plus **PNG** charts next to the `.md` file. With **`--session-id`**, charts are `chart_ips_latency_<id>.png` and `chart_eval_<id>.png`; without a session, the same pattern uses the output file stem as `<id>`. Used standalone or at the end of `pipeline-e2e`.
 
-The report includes an **Environment & versions** section (current machine): **model-opt-yolo** and **NVIDIA Model Optimizer** pip versions, **TensorRT** (Python bindings and trtexec log line when present), **PyTorch** / **PyTorch CUDA**, **CUDA** as reported by **`nvidia-smi`**, and per-GPU **name**, **driver**, **memory**, **compute capability**, and **SM count** when the driver exposes it.
+The report starts with an **FP16 baseline** table when a `*.fp16` engine row exists, then **Best configuration**: with FP16 present, each row is the best **quantized** (non-baseline) engine per metric and **vs FP16** compares that engine to the baseline (never the baseline to itself). Charts use series order FP16 baseline → int4 → int8 → fp8. **Eval** and **Throughput** tables put FP16 first when present, then sort by mAP or QPS. Comparison sections, **Environment & versions**, and **Data sources** follow as before.
 
 | Argument | Description |
 |----------|-------------|
-| `--session-id` | Shortcut: set `--trt-logs-dir` and `--eval-logs-dir` to `artifacts/pipeline_e2e/sessions/<id>/trt_engine/logs` and `…/predictions/logs` (unless you override them). With `-o` omitted, writes `artifacts/pipeline_e2e/sessions/<id>/e2e_report.md`. Same layout as `pipeline-e2e`. If omitted, **`SESSION_ID`** in the environment is used. **Use this** (or explicit session log paths) so the report sees `pipeline-e2e` outputs — the default without `--session-id` is the **global** flat `artifacts/trt_engine/logs`, not the session folder. |
+| `--session-id` | Shortcut: set `--trt-logs-dir` and `--eval-logs-dir` to `artifacts/pipeline_e2e/sessions/<id>/trt_engine/logs` and `…/predictions/logs` (unless you override them). With `-o` omitted, writes `artifacts/pipeline_e2e/sessions/<id>/report_<id>.md`. Same layout as `pipeline-e2e`. If omitted, **`SESSION_ID`** in the environment is used. **Use this** (or explicit session log paths) so the report sees `pipeline-e2e` outputs — the default without `--session-id` is the **global** flat `artifacts/trt_engine/logs`, not the session folder. |
 | `--merge-global-logs` | Also read global `<artifacts>/trt_engine/logs` and `<artifacts>/predictions/logs` and merge with the primary dirs (newest timestamp per config). `pipeline-e2e` enables this when invoking `report-runs`. |
 | `--trt-logs-dir` | Folder with `trt_bench_*.log` (default without `--session-id`: `<artifacts>/trt_engine/logs` — often **not** where `pipeline-e2e` writes) |
 | `--eval-logs-dir` | Folder with `eval_*.log` (default without `--session-id`: `<artifacts>/predictions/logs`) |
-| `-o`, `--output` | Output `.md` path (default: `artifacts/reports/trt_eval_report_<timestamp>.md`, or `…/sessions/<id>/e2e_report.md` when **`--session-id`** or **`SESSION_ID`** selects a session) |
+| `-o`, `--output` | Output `.md` path (default: `artifacts/reports/trt_eval_report_<timestamp>.md`, or `…/sessions/<id>/report_<id>.md` when **`--session-id`** or **`SESSION_ID`** selects a session) |
 
 ---
 

@@ -18,7 +18,7 @@ flowchart TD
   B --> E[eval-trt]
   E --> T[trt-bench]
   T --> LOOP
-  LOOP -->|no| REP[report-runs → e2e_report.md]
+  LOOP -->|no| REP[report-runs → report_<id>.md]
   REP --> END([done])
 ```
 
@@ -36,6 +36,8 @@ One string selects **which PTQ combos** run. There is **no** separate `--quantiz
 Methods: **int8** / **fp8** → `entropy` \| `max`; **int4** → `awq_clip` \| `rtn_dq`.
 
 Default if omitted: **`int8.entropy`** (one int8 run with entropy calibration).
+
+To compare all six combos and optional **YAML profiles** in one session, see [PTQ performance workflow](quantization-performance-workflow.md#finding-the-best-mode-or-method-with-pipeline-e2e).
 
 > **FP8 requires a capable GPU.** FP8 PTQ and inference need **NVIDIA GPUs with compute capability ≥ 8.9**, for example:
 > - **Ada Lovelace** (RTX 4090, 4080, 4070, …) — CC 8.9  
@@ -79,9 +81,9 @@ flowchart TD
 
 If you prefer to run each command yourself: **export ONNX** (in your original framework — not this repo) → **download-coco** (optional) → **calib** → **quantize** → **build-trt** → **eval-trt** (and **`trt-bench`** for throughput). Optional **`--autotune`** on `quantize` (details below).
 
-**Manual comparison (FP16 vs quantized):** To mirror `pipeline-e2e`, build an FP16 TensorRT engine from the **original** FP32 ONNX with **`model-opt-yolo build-trt --onnx models/your.onnx --mode fp16 --engine-out artifacts/trt_engine/<stem>.fp16.engine`** (or any path whose **stem** ends with `.fp16` so logs group correctly), then run **`eval-trt`** and **`trt-bench`** on that engine. Run the same for each quantized ONNX. Aggregate results with **`report-runs`** (see below).
+**Manual comparison (FP16 vs quantized):** To mirror `pipeline-e2e`, build an FP16 TensorRT engine from the **original** FP32 ONNX with **`model-opt-yolo build-trt --onnx models/your.onnx --mode fp16`** (default output **`artifacts/trt_engine/<stem>.fp16.b<batch>_i<img>.engine`**, or set **`--engine-out`** yourself). The FP16 baseline **stem** for logs is still **`<onnx-stem>.fp16`**. Then run **`eval-trt`** and **`trt-bench`** on that engine. Run the same for each quantized ONNX. Aggregate results with **`report-runs`** (see below).
 
-**Same `session_id` for manual runs:** Pick an id (e.g. `myrun-20260411`) and pass **`--session-id <id>`** to **`build-trt`**, **`eval-trt`**, and **`trt-bench`** (when you omit **`--log-file`**, logs go under `artifacts/pipeline_e2e/sessions/<id>/…`). Or set **`export SESSION_ID=myrun-20260411`** once in the shell: every command uses it automatically until you override with **`--session-id`**. Then run **`model-opt-yolo report-runs`** (or **`report-runs --session-id …`**) to generate **`e2e_report.md`** in that session folder.
+**Same `session_id` for manual runs:** Pick an id (e.g. `myrun-20260411`) and pass **`--session-id <id>`** to **`build-trt`**, **`eval-trt`**, and **`trt-bench`** (when you omit **`--log-file`**, logs go under `artifacts/pipeline_e2e/sessions/<id>/…`). Or set **`export SESSION_ID=myrun-20260411`** once in the shell: every command uses it automatically until you override with **`--session-id`**. Then run **`model-opt-yolo report-runs`** (or **`report-runs --session-id …`**) to generate **`report_<id>.md`** in that session folder.
 
 ```mermaid
 flowchart TD

@@ -15,6 +15,7 @@
 |--|--|
 | **CLI** | `model-opt-yolo` |
 | **Docs** | [`docs/README.md`](docs/README.md) |
+| **AI coding agents** | [`skills/README.md`](skills/README.md) — Agent Skills, conventions, PTQ/TRT workflows for assistants |
 
 ---
 
@@ -25,6 +26,7 @@
 - [Quick Steps](#quick-steps)
 - [Supported Output Formats](#supported-output-formats)
 - [Technology Stack](#technology-stack)
+- [AI coding agents](#ai-coding-agents)
 - [Getting Started](#getting-started)
   - [Prerequisites](#prerequisites)
   - [Run with Docker (default)](#run-with-docker-default)
@@ -84,8 +86,8 @@ Run **inside the container** (or locally after `pip install -e .`):
 2. `model-opt-yolo download-coco --output-dir data/coco`
 3. `model-opt-yolo calib --images_dir data/coco/val2017 --calibration_data_size 500 --img_size 640`
 4. `model-opt-yolo quantize --calibration_data artifacts/calibration/…npy --onnx_path models/your.onnx` (optional: `--autotune default`)
-5. **Optional FP16 reference:** `model-opt-yolo build-trt --onnx models/your.onnx --mode fp16 --engine-out artifacts/trt_engine/<stem>.fp16.engine` then **`eval-trt`** / **`trt-bench`** on that engine (use **`SESSION_ID`** or **`--session-id`** on each command for a unified report).
-6. `model-opt-yolo build-trt --onnx artifacts/quantized/your…quant.onnx --img-size 640` → `artifacts/trt_engine/<stem>.engine` (default `--mode strongly-typed`; see [docs](docs/cli-reference.md#model-opt-yolo-build-trt))
+5. **Optional FP16 reference:** `model-opt-yolo build-trt --onnx models/your.onnx --mode fp16` (default output `artifacts/trt_engine/<stem>.fp16.b<batch>_i<img>.engine`) then **`eval-trt`** / **`trt-bench`** on that engine (use **`SESSION_ID`** or **`--session-id`** on each command for a unified report).
+6. `model-opt-yolo build-trt --onnx artifacts/quantized/your…quant.onnx --img-size 640 --batch 1` → `artifacts/trt_engine/<stem>.b<batch>_i<img>.engine` (default `--mode strongly-typed`; see [docs](docs/cli-reference.md#model-opt-yolo-build-trt))
 7. `model-opt-yolo eval-trt --output-format onnx_trt --engine … --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json` (pick `ultralytics` / `deepstream_yolo` if needed — table below)
 8. `model-opt-yolo trt-bench --engine …` for throughput logs used by **`report-runs`**
 9. `model-opt-yolo report-runs` (with **`SESSION_ID`** set) **or** `--session-id` / `--trt-logs-dir` / `--eval-logs-dir` as needed
@@ -116,10 +118,27 @@ The **PyTorch → ONNX** step defines tensor names, ranks, and post-processing s
 
 | Layer | Choice |
 |------|--------|
-| **Quantization** | `nvidia-modelopt[onnx]` (GitHub `main` in the image) |
+| **Quantization** | `nvidia-modelopt[onnx]` (NVIDIA PyPI, pinned in the Dockerfile) |
 | **Calibration** | ONNX Runtime **GPU** (CUDA **13** nightly, aligned with the image) |
 | **Engine** | **TensorRT** **26.02** (NGC `tensorrt:26.02-py3`) |
 | **License** | **Apache 2.0** — [LICENSE](LICENSE), [NOTICE](NOTICE) |
+
+---
+
+## AI coding agents
+
+This repository **supports AI coding agents**—IDE assistants, agent-style CLI tools, and other automation that load structured project context. Conventions, PTQ/TensorRT workflows, and troubleshooting are written as **[Agent Skills](https://agentskills.io)**-style markdown so agents are not limited to generic chat knowledge.
+
+**Full guide** (layout, format, how to use each skill): [`skills/README.md`](skills/README.md)
+
+| Path | Role |
+|------|------|
+| [`skills/model-opt-yolo-dev/SKILL.md`](skills/model-opt-yolo-dev/SKILL.md) | Umbrella: repo layout, maintainer conventions (Part A), pointers to domain skills. |
+| [`skills/onnx-ptq/SKILL.md`](skills/onnx-ptq/SKILL.md) + [`reference.md`](skills/onnx-ptq/reference.md) | PTQ workflow, mode/method tables, `quantize()` / modelopt CLI reference. |
+| [`skills/ptq-trt-performance/SKILL.md`](skills/ptq-trt-performance/SKILL.md) | Benchmarking (`pipeline-e2e`, `report-runs`), backbone/neck/head Conv whitelists. |
+| [`skills/modelopt-troubleshooting/SKILL.md`](skills/modelopt-troubleshooting/SKILL.md) | CUDA/ORT/TRT/modelopt diagnostics and common failures. |
+
+All Agent Skills for this project are maintained under **`skills/`**.
 
 ---
 

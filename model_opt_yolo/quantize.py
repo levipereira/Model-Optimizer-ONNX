@@ -104,12 +104,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--high_precision_dtype",
         type=str,
-        default="fp32",
+        default="fp16",
         choices=("fp32", "fp16", "bf16"),
         help=(
-            "Dtype for non-quantized ops after PTQ. Default fp32 avoids Model Optimizer's "
-            "post-pass FP16 autocast, which often fails shape_inference on YOLO/TRT exports "
-            "(dynamic detection head). Use fp16 only if you know the graph supports it."
+            "Dtype for non-quantized ops after PTQ. Default fp16 aligns high-precision regions "
+            "with TensorRT mixed plans; if shape_inference fails on your export, use "
+            "--high_precision_dtype fp32."
         ),
     )
     parser.add_argument(

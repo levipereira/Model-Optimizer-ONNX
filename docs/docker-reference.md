@@ -24,7 +24,8 @@ Set inside the Dockerfile for Model Optimizer compatibility with TensorRT images
 
 | Argument | Default | Purpose |
 |----------|---------|---------|
-| `MODELOPT_GIT_REF` | `main` | Git ref for `nvidia-modelopt[onnx] @ git+https://github.com/NVIDIA/Model-Optimizer.git@...` |
+| `MODELOPT_VERSION` | `0.43.0rc4` | Pin for `nvidia-modelopt[onnx]==…` from NVIDIA PyPI (`NVIDIA_PYPI_EXTRA_INDEX`) |
+| `NVIDIA_PYPI_EXTRA_INDEX` | `https://pypi.nvidia.com` | `--extra-index-url` for `nvidia-modelopt` |
 | `ORT_CUDA13_INDEX` | Azure DevOps **ort-cuda-13-nightly** PyPI simple URL | Source for `onnxruntime-gpu` rebuild |
 | `TENSORRT_TREX_GIT_REF` | `release/10.15` | Git branch (or tag) for the shallow [NVIDIA/TensorRT](https://github.com/NVIDIA/TensorRT) clone used by TREx (TensorRT Engine Explorer) |
 
@@ -71,8 +72,8 @@ trex --help
 
 ## Build sequence (summary)
 
-1. Install **git** (for pip VCS installs).
-2. Install **`nvidia-modelopt[onnx]`** from GitHub at `MODELOPT_GIT_REF`.
+1. Install **git** (for the TREx clone).
+2. Install **`nvidia-modelopt[onnx]==MODELOPT_VERSION`** from NVIDIA PyPI (`NVIDIA_PYPI_EXTRA_INDEX`).
 3. **`pip install /workspace/model-opt-yolo`** — installs **`model-opt-yolo`** from copied `pyproject.toml` and `model_opt_yolo/`.
 4. Reinstall **`onnxruntime-gpu`** from the CUDA 13 nightly index with **`--no-deps`** so wheels match the container toolkit.
 5. Clone **TensorRT**, patch TREx, run **`source ./install.sh --venv --full`** (no second **`pip install`** of **`model-opt-yolo`** into **`env_trex`**).

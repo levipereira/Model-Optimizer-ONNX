@@ -10,7 +10,9 @@
 |----------|-------------|
 | [Installation](installation.md) | `pip install`, Docker image, ORT CUDA 13 alignment |
 | [Workflow](workflow.md) | Pipeline steps, **autotune** (`quantize --autotune`), **`pipeline-e2e`** / `--quant-matrix` |
-| [CLI reference](cli-reference.md) | `model-opt-yolo` subcommands (**`eval-trt`** **`--output-format`**; **`trex-analyze`** for TREx profile/graph/compare) |
+| [PTQ performance workflow](quantization-performance-workflow.md) | Iterative loop + **`pipeline-e2e` / `--quant-matrix`** to compare modes; **[`skills/ptq-trt-performance/SKILL.md`](../skills/ptq-trt-performance/SKILL.md)** for the measurement checklist |
+| [YOLO26n end-to-end PTQ workflow](yolo26n-end-to-end-ptq-workflow.md) | Prerequisites (Ultralytics or DeepStream-Yolo export, `download-coco`, ONNX in `models/`); then baseline **`pipeline-e2e`** → **`trex-analyze`** → YAML profile → **`pipeline-e2e` + `--quantize-profile`**; charts + session report link |
+| [CLI reference](cli-reference.md) | `model-opt-yolo` subcommands (**`eval-trt`** **`--output-format`**; **`trex-analyze`** — at most one of **`--graph`** \| **`--report`** \| **`--compare`**) |
 | [Artifacts & logging](artifacts-and-logging.md) | `artifacts/` layout, session naming, log files |
 | [Docker reference](docker-reference.md) | Base image, build args, environment variables, optional **TREx** (`/workspace/TREx`, engine profiling) |
 | [Troubleshooting](troubleshooting.md) | Common errors (CUDA/ORT, TRT, dynamic shapes) |
@@ -29,7 +31,7 @@
 | **pycocotools** | COCO mAP evaluation |
 | **OpenCV / NumPy / PyTorch** | Image preprocessing and tensors |
 
-Pinned versions for the **recommended environment** match [`docker/Dockerfile`](../docker/Dockerfile): TensorRT **26.02** Python 3 image, Model Optimizer from **GitHub** (`MODELOPT_GIT_REF`, default `main`), ORT from **ort-cuda-13-nightly**.
+Pinned versions for the **recommended environment** match [`docker/Dockerfile`](../docker/Dockerfile): TensorRT **26.02** Python 3 image, Model Optimizer **`nvidia-modelopt[onnx]`** from **NVIDIA PyPI** (`MODELOPT_VERSION`, default `0.43.0rc4`), ORT from **ort-cuda-13-nightly**.
 
 ---
 

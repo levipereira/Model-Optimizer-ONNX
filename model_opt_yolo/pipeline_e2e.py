@@ -14,6 +14,7 @@ from model_opt_yolo.logutil import add_logging_arguments, setup_logging
 from model_opt_yolo.session_paths import (
     artifacts_root,
     default_pipeline_e2e_session_log,
+    default_trt_engine_filename,
     effective_session_id,
     pipeline_e2e_session_calib_npy_path,
     pipeline_e2e_session_calib_prep_log,
@@ -144,6 +145,13 @@ def main(argv: list[str] | None = None) -> int:
         help="Square letterbox size H=W for calib / build-trt profile (default: 640).",
     )
     parser.add_argument(
+        "--batch",
+        type=int,
+        default=1,
+        metavar="B",
+        help="Batch for build-trt min/opt/max shapes; default engine name includes bB_iN (default: 1).",
+    )
+    parser.add_argument(
         "--annotations",
         type=str,
         default="data/coco/annotations/instances_val2017.json",
@@ -207,9 +215,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--high-precision-dtype",
         type=str,
-        default="fp32",
+        default="fp16",
         choices=("fp32", "fp16", "bf16"),
-        help="Passed to quantize (default: fp32).",
+        help="Passed to quantize (default: fp16).",
     )
     parser.add_argument(
         "--quantize-profile",
@@ -261,7 +269,7 @@ def main(argv: list[str] | None = None) -> int:
         metavar="PATH",
         help=(
             "report-runs -o path (default: "
-            "artifacts/pipeline_e2e/sessions/<session_id>/e2e_report.md)."
+            "artifacts/pipeline_e2e/sessions/<session_id>/report_<session_id>.md)."
         ),
     )
     parser.add_argument(
@@ -407,7 +415,9 @@ def main(argv: list[str] | None = None) -> int:
     if not args.no_fp16_baseline:
         fp16_ts = run_timestamp()
         fp16_stem = f"{onnx_path.stem}.fp16"
-        engine_fp16 = session_trt_engine_dir / f"{fp16_stem}.engine"
+        engine_fp16 = session_trt_engine_dir / default_trt_engine_filename(
+            onnx_stem=fp16_stem, batch=args.batch, img_size=args.img_size
+        )
         build_log_fp16 = session_trt_logs / f"build_trt_{safe_component(fp16_stem)}_{fp16_ts}.log"
         log.info("========== FP16 baseline (original ONNX, --mode fp16) ==========")
         b_fp16 = [
@@ -415,6 +425,8 @@ def main(argv: list[str] | None = None) -> int:
             str(onnx_path),
             "--img-size",
             str(args.img_size),
+            "--batch",
+            str(args.batch),
             "--input-name",
             args.input_name,
             "--mode",
@@ -566,12 +578,16 @@ def main(argv: list[str] | None = None) -> int:
 
         eng_stem = q_out.stem
         build_log = session_trt_logs / f"build_trt_{safe_component(eng_stem)}_{step_ts}.log"
-        engine_path = session_trt_engine_dir / f"{eng_stem}.engine"
+        engine_path = session_trt_engine_dir / default_trt_engine_filename(
+            onnx_stem=eng_stem, batch=args.batch, img_size=args.img_size
+        )
         b_argv = [
             "--onnx",
             str(q_out),
             "--img-size",
             str(args.img_size),
+            "--batch",
+            str(args.batch),
             "--input-name",
             args.input_name,
             "--mode",
@@ -667,7 +683,7 @@ def main(argv: list[str] | None = None) -> int:
 
     rep = args.report_output
     if rep is None:
-        rep = str(session_root / "e2e_report.md")
+        rep = str(session_root / f"report_{session_id}.md")
     Path(rep).parent.mkdir(parents=True, exist_ok=True)
     log.info(
         "Step: report-runs (session-scoped dirs: trt=%s eval=%s) → %s",

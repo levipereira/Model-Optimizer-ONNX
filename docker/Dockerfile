@@ -12,10 +12,11 @@ ENV TREX_VENV=/workspace/TREx/tools/experimental/trt-engine-explorer/env_trex
 
 WORKDIR /workspace/model-opt-yolo
 
-# PyPI nvidia-modelopt does not ship the full ONNX autotune CLI; install from GitHub (PEP 508 direct URL).
+# nvidia-modelopt from NVIDIA PyPI (needs --extra-index-url). `[onnx]` for PTQ / modelopt.onnx.quantization.
 # onnxruntime-gpu from PyPI targets CUDA 12; this image ships CUDA 13 — align ORT with the toolkit:
 # https://github.com/microsoft/onnxruntime/issues (ort-cuda-13-nightly)
-ARG MODELOPT_GIT_REF=main
+ARG MODELOPT_VERSION=0.43.0rc4
+ARG NVIDIA_PYPI_EXTRA_INDEX=https://pypi.nvidia.com
 ARG ORT_CUDA13_INDEX="https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/ort-cuda-13-nightly/pypi/simple/"
 
 # Install local CLI package (model-opt-yolo) + upstream Model Optimizer + ORT nightly
@@ -28,7 +29,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends git graphviz su
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir -U pip \
     && pip install --no-cache-dir -U \
-        "nvidia-modelopt[onnx] @ git+https://github.com/NVIDIA/Model-Optimizer.git@${MODELOPT_GIT_REF}" \
+        "nvidia-modelopt[onnx]==${MODELOPT_VERSION}" \
+        --extra-index-url "${NVIDIA_PYPI_EXTRA_INDEX}" \
     && pip install --no-cache-dir /workspace/model-opt-yolo \
     && pip install --no-cache-dir --upgrade --force-reinstall --pre \
         --index-url "${ORT_CUDA13_INDEX}" \

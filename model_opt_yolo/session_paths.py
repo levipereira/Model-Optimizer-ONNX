@@ -89,6 +89,11 @@ def trt_engine_dir() -> Path:
     return artifacts_root() / "trt_engine"
 
 
+def default_trt_engine_filename(*, onnx_stem: str, batch: int, img_size: int) -> str:
+    """Default ``build-trt`` output basename: ``<stem>.b<batch>_i<H>.engine`` (avoids clobbering across shapes)."""
+    return f"{onnx_stem}.b{batch}_i{img_size}.engine"
+
+
 def trt_engine_logs_dir() -> Path:
     return artifacts_root() / "trt_engine" / "logs"
 

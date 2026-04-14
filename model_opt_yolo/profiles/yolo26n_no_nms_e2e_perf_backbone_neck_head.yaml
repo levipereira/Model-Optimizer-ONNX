@@ -1,0 +1,32 @@
+# =============================================================================
+# YOLO26n — all Conv nodes (backbone + neck + head); hpfp16 on CLI
+# =============================================================================
+# Whitelist stem + node_conv2d_1 … node_conv2d_101 (every Conv in this export).
+# Compare latency/mAP vs backbone-only or partial-neck profiles.
+#
+# Use: model-opt-yolo quantize ... --profile yolo26n_no_nms_e2e_perf_backbone_neck_head \\
+#        --high_precision_dtype fp16 --suffix .bnh.quant.onnx
+# =============================================================================
+
+version: 1
+
+name: yolo26n_no_nms_e2e_perf_backbone_neck_head
+
+description: >
+  Whitelist all Convs (stem + _1…_101); same SiLU/Sigmoid/Softmax excludes as perf.
+
+defaults:
+  autotune: null
+
+modelopt:
+  include_nodes:
+    - "^node_conv2d(?:_([1-9]|[1-9][0-9]|10[01]))?$"
+
+  exclude_op_types:
+    - Sigmoid
+    - Softmax
+
+  exclude_nodes:
+    - "^node_silu(_[0-9]+)?$"
+
+  extra_args: []

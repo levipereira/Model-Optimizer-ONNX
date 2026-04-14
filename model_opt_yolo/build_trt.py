@@ -19,6 +19,7 @@ from model_opt_yolo.io_checks import validate_readable_file
 from model_opt_yolo.logutil import add_logging_arguments, setup_logging
 from model_opt_yolo.session_paths import (
     default_build_trt_session_log,
+    default_trt_engine_filename,
     effective_session_id,
     run_timestamp,
     trt_engine_dir,
@@ -127,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         metavar="PATH",
         help=(
-            "Output .engine path (default: <artifacts>/trt_engine/<onnx-stem>.engine; "
+            "Output .engine path (default: <artifacts>/trt_engine/<onnx-stem>.b<batch>_i<img-size>.engine; "
             "artifacts root is cwd/artifacts or MODELOPT_ARTIFACTS_ROOT)."
         ),
     )
@@ -175,7 +176,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.engine_out:
         engine_path = Path(args.engine_out)
     else:
-        engine_path = trt_engine_dir() / f"{stem}.engine"
+        engine_path = trt_engine_dir() / default_trt_engine_filename(
+            onnx_stem=stem, batch=args.batch, img_size=args.img_size
+        )
     if args.timing_cache:
         timing_cache = Path(args.timing_cache)
     else:

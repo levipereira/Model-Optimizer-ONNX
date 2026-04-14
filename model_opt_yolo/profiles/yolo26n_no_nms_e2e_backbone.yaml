@@ -1,0 +1,51 @@
+# =============================================================================
+# YOLO26n — quantize BACKBONE only (neck + head stay higher precision)
+# =============================================================================
+# Export: end-to-end detector ONNX **without embedded NMS** (post-NMS / eval in app).
+# Backbone = Conv nodes from input through node_conv2d_39 (before the first
+# PAN Resize in this ONNX). Verified against models/yolo26n_no_nms_e2e.onnx.
+#
+# IMPORTANT — how Model Optimizer uses this file:
+#   include_nodes  →  --nodes_to_quantize  (whitelist: ONLY these nodes get Q/DQ)
+#   exclude_nodes  →  --nodes_to_exclude    (blacklist: skip PTQ on these nodes)
+#
+# The previous version of this profile used exclude_nodes to *skip* PTQ on hot
+# layers (stem + various Convs). That did NOT mean “quantize backbone only”; it
+# kept those nodes in FP. This file uses include_nodes so PTQ applies only to
+# backbone Conv names.
+#
+# Activations (this export): SiLU = Sigmoid + Mul named node_silu*; plus Softmax
+# in the head. Those are excluded from PTQ via exclude_op_types / exclude_nodes
+# so Q/DQ is not forced through activation ops (other Mul, e.g. node_mul_*, are
+# not matched — adjust if your export renames nodes).
+#
+# Use: model-opt-yolo quantize ... --profile yolo26n_no_nms_e2e_backbone
+# Related variants: yolo26n_no_nms_e2e_perf_neck55, yolo26n_no_nms_e2e_perf_exclude_only,
+# backbone+neck/head — see docs/yolo26n-end-to-end-ptq-workflow.md
+# Requires: pip install pyyaml
+# =============================================================================
+
+version: 1
+
+name: yolo26n_no_nms_e2e_backbone
+
+description: >
+  Backbone Conv whitelist; Sigmoid / Softmax / SiLU Mul nodes excluded from PTQ.
+
+defaults:
+  autotune: null
+
+modelopt:
+  # Single regex: stem + node_conv2d_1 … node_conv2d_39 (40 Convs), nothing else.
+  include_nodes:
+    - "^node_conv2d(?:_([1-9]|[12][0-9]|3[0-9]))?$"
+
+  exclude_op_types:
+    - Sigmoid
+    - Softmax
+
+  exclude_nodes:
+    # SiLU: second Mul in this ONNX (87 nodes); do not use exclude_op_types: Mul
+    - "^node_silu(_[0-9]+)?$"
+
+  extra_args: []

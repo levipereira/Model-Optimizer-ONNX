@@ -73,7 +73,7 @@ Commands:
   eval-trt    COCO mAP on TRT engines (EfficientNMS, Ultralytics, or DeepStream-Yolo output)
   report-runs Scan trt_bench / eval logs → Markdown report (tables + charts); --session-id uses pipeline_e2e/sessions/…
   pipeline-e2e  End-to-end: calib → FP16 baseline → quantize [+autotune] → build-trt → eval-trt → trt-bench → report
-  trex-analyze  trtexec build+profile → TREx JSON/graph; optional --compare-onnx (two ONNX graphs; needs trex)
+  trex-analyze  trtexec build+profile; at most one of --compare | --graph | --report | none (needs trex)
 
 Examples:
   model-opt-yolo download-coco --output-dir data/coco
@@ -84,9 +84,9 @@ Examples:
       --onnx_path models/yolo.onnx --autotune default
   model-opt-yolo quantize --calibration_data artifacts/calibration/calib_....npy \\
       --onnx_path models/yolo.onnx --profile matmul_fp_exclude
-  model-opt-yolo build-trt --onnx artifacts/quantized/model.int8.entropy.quant.onnx
-  model-opt-yolo trt-bench --engine artifacts/trt_engine/model.int8.entropy.quant.engine
-  model-opt-yolo eval-trt --output-format onnx_trt --engine artifacts/trt_engine/model.int8.entropy.quant.engine
+  model-opt-yolo build-trt --onnx artifacts/quantized/model.int8.entropy.quant.onnx --img-size 640 --batch 1
+  model-opt-yolo trt-bench --engine artifacts/trt_engine/model.int8.entropy.quant.b1_i640.engine
+  model-opt-yolo eval-trt --output-format onnx_trt --engine artifacts/trt_engine/model.int8.entropy.quant.b1_i640.engine
 
 See also: model-opt-yolo <command> --help
 """,
