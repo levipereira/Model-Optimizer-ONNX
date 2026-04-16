@@ -70,6 +70,8 @@ import pycuda.driver as cuda
 import tensorrt as trt
 
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
+# Register libnvinfer_plugin (EfficientNMS_TRT, etc.) before deserializing engines that use plugins.
+trt.init_libnvinfer_plugins(TRT_LOGGER, "")
 
 
 class HostDeviceMem:
