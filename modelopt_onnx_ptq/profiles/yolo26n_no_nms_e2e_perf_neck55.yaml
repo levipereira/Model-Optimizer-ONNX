@@ -5,7 +5,7 @@
 # calib + trt-bench / eval-trt. Wider int8 coverage may improve throughput or
 # add reformats at PAN boundaries — measure, do not assume.
 #
-# Use: model-opt-yolo quantize ... --profile yolo26n_no_nms_e2e_perf_neck55
+# Use: modelopt-onnx-ptq quantize ... --profile yolo26n_no_nms_e2e_perf_neck55
 #      Optional: --suffix .neck55.quant.onnx to keep ONNX variants separate.
 # =============================================================================
 

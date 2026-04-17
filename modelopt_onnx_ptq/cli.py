@@ -1,4 +1,4 @@
-"""Entry point for the ``model-opt-yolo`` console script."""
+"""Entry point for the ``modelopt-onnx-ptq`` console script."""
 
 from __future__ import annotations
 
@@ -15,39 +15,39 @@ def main(argv: list[str] | None = None) -> int:
     rest = argv[1:]
 
     if cmd in ("download-coco", "download_coco"):
-        from model_opt_yolo.download_coco import main as run
+        from modelopt_onnx_ptq.download_coco import main as run
 
         return run(rest)
     if cmd == "calib":
-        from model_opt_yolo.calib_prep import main as run
+        from modelopt_onnx_ptq.calib_prep import main as run
 
         return run(rest)
     if cmd == "quantize":
-        from model_opt_yolo.quantize import main as run
+        from modelopt_onnx_ptq.quantize import main as run
 
         return run(rest)
     if cmd in ("eval-trt", "eval_trt"):
-        from model_opt_yolo.eval_trt import main as run
+        from modelopt_onnx_ptq.eval_trt import main as run
 
         return run(rest)
     if cmd in ("build-trt", "build_trt"):
-        from model_opt_yolo.build_trt import main as run
+        from modelopt_onnx_ptq.build_trt import main as run
 
         return run(rest)
     if cmd in ("trt-bench", "trt_bench"):
-        from model_opt_yolo.bench_trt import main as run
+        from modelopt_onnx_ptq.bench_trt import main as run
 
         return run(rest)
     if cmd in ("report-runs", "report_runs"):
-        from model_opt_yolo.report_runs import main as run
+        from modelopt_onnx_ptq.report_runs import main as run
 
         return run(rest)
     if cmd in ("pipeline-e2e", "pipeline_e2e", "e2e"):
-        from model_opt_yolo.pipeline_e2e import main as run
+        from modelopt_onnx_ptq.pipeline_e2e import main as run
 
         return run(rest)
     if cmd in ("trex-analyze", "trex_analyze"):
-        from model_opt_yolo.trex_analyze import main as run
+        from modelopt_onnx_ptq.trex_analyze import main as run
 
         return run(rest)
 
@@ -59,10 +59,10 @@ def main(argv: list[str] | None = None) -> int:
 def _print_usage(*, to_stdout: bool) -> None:
     out = sys.stdout if to_stdout else sys.stderr
     print(
-        """model-opt-yolo — ONNX PTQ / TensorRT helpers for YOLO-style models
+        """modelopt-onnx-ptq — ONNX PTQ / TensorRT helpers for exported ONNX models
 
 Usage:
-  model-opt-yolo <command> [options]
+  modelopt-onnx-ptq <command> [options]
 
 Commands:
   download-coco  Download COCO val2017 + annotations into data/coco (or --output-dir)
@@ -76,19 +76,19 @@ Commands:
   trex-analyze  trtexec build+profile; at most one of --compare | --graph | --report | none (needs trex)
 
 Examples:
-  model-opt-yolo download-coco --output-dir data/coco
-  model-opt-yolo calib --images_dir data/coco/val2017 --calibration_data_size 500 --img_size 640
-  model-opt-yolo quantize --calibration_data artifacts/calibration/calib_....npy \\
+  modelopt-onnx-ptq download-coco --output-dir data/coco
+  modelopt-onnx-ptq calib --images_dir data/coco/val2017 --calibration_data_size 500 --img_size 640
+  modelopt-onnx-ptq quantize --calibration_data artifacts/calibration/calib_....npy \\
       --onnx_path models/yolo.onnx
-  model-opt-yolo quantize --calibration_data artifacts/calibration/calib_....npy \\
+  modelopt-onnx-ptq quantize --calibration_data artifacts/calibration/calib_....npy \\
       --onnx_path models/yolo.onnx --autotune default
-  model-opt-yolo quantize --calibration_data artifacts/calibration/calib_....npy \\
+  modelopt-onnx-ptq quantize --calibration_data artifacts/calibration/calib_....npy \\
       --onnx_path models/yolo.onnx --profile matmul_fp_exclude
-  model-opt-yolo build-trt --onnx artifacts/quantized/model.int8.entropy.quant.onnx --img-size 640 --batch 1
-  model-opt-yolo trt-bench --engine artifacts/trt_engine/model.int8.entropy.quant.b1_i640.engine
-  model-opt-yolo eval-trt --output-format onnx_trt --engine artifacts/trt_engine/model.int8.entropy.quant.b1_i640.engine
+  modelopt-onnx-ptq build-trt --onnx artifacts/quantized/model.int8.entropy.quant.onnx --img-size 640 --batch 1
+  modelopt-onnx-ptq trt-bench --engine artifacts/trt_engine/model.int8.entropy.quant.b1_i640.engine
+  modelopt-onnx-ptq eval-trt --output-format onnx_trt --engine artifacts/trt_engine/model.int8.entropy.quant.b1_i640.engine
 
-See also: model-opt-yolo <command> --help
+See also: modelopt-onnx-ptq <command> --help
 """,
         file=out,
     )

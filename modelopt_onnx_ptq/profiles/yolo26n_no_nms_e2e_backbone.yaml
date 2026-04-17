@@ -19,7 +19,7 @@
 # so Q/DQ is not forced through activation ops (other Mul, e.g. node_mul_*, are
 # not matched — adjust if your export renames nodes).
 #
-# Use: model-opt-yolo quantize ... --profile yolo26n_no_nms_e2e_backbone
+# Use: modelopt-onnx-ptq quantize ... --profile yolo26n_no_nms_e2e_backbone
 # Related variants: yolo26n_no_nms_e2e_perf_neck55, yolo26n_no_nms_e2e_perf_exclude_only,
 # backbone+neck/head — see docs/yolo26n-end-to-end-ptq-workflow.md
 # Requires: pip install pyyaml

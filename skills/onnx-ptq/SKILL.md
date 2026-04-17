@@ -5,7 +5,7 @@ description: >-
   Covers calibration data prep, int8/fp8/int4 quantization, execution provider
   setup, and TensorRT deployment. Use when the user mentions ONNX quantization,
   PTQ, calibration, Model Optimizer, modelopt, int8, fp8, int4, TensorRT,
-  model-opt-yolo quantize, or model-opt-yolo.
+  modelopt-onnx-ptq quantize, or modelopt-onnx-ptq.
 ---
 
 # ONNX Post-Training Quantization (PTQ)
@@ -27,14 +27,14 @@ Task Progress:
 **Preferred: Docker**
 
 ```bash
-docker build -f docker/Dockerfile -t modelopt-yolo-ptq .
-export DATA_ROOT="$HOME/model-opt-yolo"
+docker build -f docker/Dockerfile -t modelopt-onnx-ptq .
+export DATA_ROOT="$HOME/modelopt-onnx-ptq"
 mkdir -p "$DATA_ROOT/models" "$DATA_ROOT/data" "$DATA_ROOT/artifacts"
-docker run --gpus all --rm -it -w /workspace/model-opt-yolo \
-  -v "$DATA_ROOT/models:/workspace/model-opt-yolo/models" \
-  -v "$DATA_ROOT/data:/workspace/model-opt-yolo/data" \
-  -v "$DATA_ROOT/artifacts:/workspace/model-opt-yolo/artifacts" \
-  modelopt-yolo-ptq
+docker run --gpus all --rm -it -w /workspace/modelopt-onnx-ptq \
+  -v "$DATA_ROOT/models:/workspace/modelopt-onnx-ptq/models" \
+  -v "$DATA_ROOT/data:/workspace/modelopt-onnx-ptq/data" \
+  -v "$DATA_ROOT/artifacts:/workspace/modelopt-onnx-ptq/artifacts" \
+  modelopt-onnx-ptq
 ```
 
 **Local: ensure matching CUDA/ORT versions**
@@ -66,8 +66,8 @@ for inp in model.graph.input:
 ## Step 3: Build Calibration Data
 
 ```bash
-pip install -e .   # once: installs the `model-opt-yolo` command
-model-opt-yolo calib \
+pip install -e .   # once: installs the `modelopt-onnx-ptq` command
+modelopt-onnx-ptq calib \
   --images_dir=data/coco/val2017 \
   --calibration_data_size=500 \
   --img_size=640
@@ -81,14 +81,14 @@ Preprocessing must match the model's export conventions (letterbox, RGB, /255).
 
 ```bash
 # Without autotune
-model-opt-yolo quantize \
+modelopt-onnx-ptq quantize \
   --calibration_data=artifacts/calibration/calib_coco.npy \
   --onnx_glob="models/*.onnx" \
   --quantize_mode=int8 \
   --calibration_method=entropy
 
 # With autotune (int8/fp8 only — ignored for int4)
-model-opt-yolo quantize \
+modelopt-onnx-ptq quantize \
   --calibration_data=artifacts/calibration/calib_coco.npy \
   --onnx_path=models/yolov8n.onnx \
   --quantize_mode=int8 \
@@ -129,7 +129,7 @@ quantize(
 **End-to-end pipeline (all 6 combos + autotune):**
 
 ```bash
-model-opt-yolo pipeline-e2e \
+modelopt-onnx-ptq pipeline-e2e \
   --onnx models/yolo.onnx \
   --quant-matrix all \
   --autotune default \
@@ -163,7 +163,7 @@ This runs int8.entropy, int8.max, fp8.entropy, fp8.max, int4.awq_clip, int4.rtn_
 | `--use_external_data_format` | Required for models > 2GB |
 | `--simplify` | Runs onnxsim before quantization |
 | `--calibration_eps cpu` | Force CPU-only (skip GPU EPs) |
-| `--high_precision_dtype` | Default **`fp16`** in `model-opt-yolo quantize` for non-quantized ops; use **`fp32`** if shape inference fails |
+| `--high_precision_dtype fp32` | Keep fp32 for non-quantized ops (default in `modelopt-onnx-ptq quantize`; Model Opt CLI defaults to fp16) |
 
 ## Step 5: Validate Output
 
@@ -178,10 +178,10 @@ print(f"Q/DQ nodes: {len(qdq)}")
 
 ## Step 6: Deploy with TensorRT
 
-Prefer **`model-opt-yolo build-trt`** so shapes and logs stay consistent:
+Prefer **`modelopt-onnx-ptq build-trt`** so shapes and logs stay consistent:
 
 ```bash
-model-opt-yolo build-trt --onnx artifacts/quantized/yolov8n.int8.entropy.quant.onnx --img-size 640
+modelopt-onnx-ptq build-trt --onnx artifacts/quantized/yolov8n.int8.entropy.quant.onnx --img-size 640
 # default --mode is strongly-typed for PTQ ONNX; for non-quantized FP ONNX use --mode best or fp16-int8 (see CLI docs)
 ```
 

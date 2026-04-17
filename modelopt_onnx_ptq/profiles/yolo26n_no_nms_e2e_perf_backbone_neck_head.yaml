@@ -4,7 +4,7 @@
 # Whitelist stem + node_conv2d_1 … node_conv2d_101 (every Conv in this export).
 # Compare latency/mAP vs backbone-only or partial-neck profiles.
 #
-# Use: model-opt-yolo quantize ... --profile yolo26n_no_nms_e2e_perf_backbone_neck_head \\
+# Use: modelopt-onnx-ptq quantize ... --profile yolo26n_no_nms_e2e_perf_backbone_neck_head \\
 #        --high_precision_dtype fp16 --suffix .bnh.quant.onnx
 # =============================================================================
 

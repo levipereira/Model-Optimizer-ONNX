@@ -9,9 +9,9 @@ import logging
 import sys
 from pathlib import Path
 
-from model_opt_yolo.io_checks import validate_readable_file
-from model_opt_yolo.logutil import add_logging_arguments, setup_logging
-from model_opt_yolo.session_paths import (
+from modelopt_onnx_ptq.io_checks import validate_readable_file
+from modelopt_onnx_ptq.logutil import add_logging_arguments, setup_logging
+from modelopt_onnx_ptq.session_paths import (
     artifacts_root,
     default_pipeline_e2e_session_log,
     default_trt_engine_filename,
@@ -226,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
         metavar="NAME_OR_PATH",
         help=(
             "Optional YAML profile passed to each quantize step as --profile "
-            "(include/exclude op types, nodes, etc.). See model_opt_yolo/profiles/."
+            "(include/exclude op types, nodes, etc.). See modelopt_onnx_ptq/profiles/."
         ),
     )
     parser.add_argument(
@@ -344,7 +344,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     # --- calib (outputs under session dir, not global artifacts/calibration) ---
-    from model_opt_yolo.calib_prep import main as calib_main
+    from modelopt_onnx_ptq.calib_prep import main as calib_main
 
     images_resolved = Path(args.images_dir).expanduser().resolve()
     calib_npy = pipeline_e2e_session_calib_npy_path(
@@ -398,11 +398,11 @@ def main(argv: list[str] | None = None) -> int:
     quant_dir = pipeline_e2e_session_quantized_dir(session_id)
     suffix = ".quant.onnx"
 
-    from model_opt_yolo.quantize import main as quantize_main
-    from model_opt_yolo.build_trt import main as build_trt_main
-    from model_opt_yolo.eval_trt import main as eval_trt_main
-    from model_opt_yolo.bench_trt import main as bench_trt_main
-    from model_opt_yolo.report_runs import main as report_main
+    from modelopt_onnx_ptq.quantize import main as quantize_main
+    from modelopt_onnx_ptq.build_trt import main as build_trt_main
+    from modelopt_onnx_ptq.eval_trt import main as eval_trt_main
+    from modelopt_onnx_ptq.bench_trt import main as bench_trt_main
+    from modelopt_onnx_ptq.report_runs import main as report_main
 
     session_trt_logs = pipeline_e2e_session_trt_logs(session_id)
     session_trt_engine_dir = pipeline_e2e_session_trt_engine_dir(session_id)

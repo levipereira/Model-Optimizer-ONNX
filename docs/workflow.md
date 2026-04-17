@@ -2,7 +2,7 @@
 
 ## Easiest path: `pipeline-e2e`
 
-The simplest way to run everything is **`model-opt-yolo pipeline-e2e`**: it runs **calib** → **FP16 baseline** on the original ONNX (**`build-trt --mode fp16`** → **`eval-trt`** → **`trt-bench`**) → then **quantize** → **build-trt** → **eval-trt** → **trt-bench** for each quantization combo, and ends with **`report-runs`**, writing a **Markdown report** under `artifacts/pipeline_e2e/sessions/<session_id>/` (skip the report with `--no-report`). The FP16 step gives a **TensorRT FP16** reference row in the report (engine stem `<onnx-stem>.fp16`) so you can compare **FP16 vs int8/fp8/int4** in the same tables and charts. Use **`--no-fp16-baseline`** to skip that baseline. Pass **`--onnx`** and match **`--input-name`** / **`--output-format`** to your export; optional **`--autotune`**, **`--quant-matrix`**. See [CLI reference — pipeline-e2e](cli-reference.md#model-opt-yolo-pipeline-e2e).
+The simplest way to run everything is **`modelopt-onnx-ptq pipeline-e2e`**: it runs **calib** → **FP16 baseline** on the original ONNX (**`build-trt --mode fp16`** → **`eval-trt`** → **`trt-bench`**) → then **quantize** → **build-trt** → **eval-trt** → **trt-bench** for each quantization combo, and ends with **`report-runs`**, writing a **Markdown report** under `artifacts/pipeline_e2e/sessions/<session_id>/` (skip the report with `--no-report`). The FP16 step gives a **TensorRT FP16** reference row in the report (engine stem `<onnx-stem>.fp16`) so you can compare **FP16 vs int8/fp8/int4** in the same tables and charts. Use **`--no-fp16-baseline`** to skip that baseline. Pass **`--onnx`** and match **`--input-name`** / **`--output-format`** to your export; optional **`--autotune`**, **`--quant-matrix`**. See [CLI reference — pipeline-e2e](cli-reference.md#modelopt-onnx-ptq-pipeline-e2e).
 
 ### `pipeline-e2e` flow (graphical)
 
@@ -81,36 +81,36 @@ flowchart TD
 
 If you prefer to run each command yourself: **export ONNX** (in your original framework — not this repo) → **download-coco** (optional) → **calib** → **quantize** → **build-trt** → **eval-trt** (and **`trt-bench`** for throughput). Optional **`--autotune`** on `quantize` (details below).
 
-**Manual comparison (FP16 vs quantized):** To mirror `pipeline-e2e`, build an FP16 TensorRT engine from the **original** FP32 ONNX with **`model-opt-yolo build-trt --onnx models/your.onnx --mode fp16`** (default output **`artifacts/trt_engine/<stem>.fp16.b<batch>_i<img>.engine`**, or set **`--engine-out`** yourself). The FP16 baseline **stem** for logs is still **`<onnx-stem>.fp16`**. Then run **`eval-trt`** and **`trt-bench`** on that engine. Run the same for each quantized ONNX. Aggregate results with **`report-runs`** (see below).
+**Manual comparison (FP16 vs quantized):** To mirror `pipeline-e2e`, build an FP16 TensorRT engine from the **original** FP32 ONNX with **`modelopt-onnx-ptq build-trt --onnx models/your.onnx --mode fp16`** (default output **`artifacts/trt_engine/<stem>.fp16.b<batch>_i<img>.engine`**, or set **`--engine-out`** yourself). The FP16 baseline **stem** for logs is still **`<onnx-stem>.fp16`**. Then run **`eval-trt`** and **`trt-bench`** on that engine. Run the same for each quantized ONNX. Aggregate results with **`report-runs`** (see below).
 
-**Same `session_id` for manual runs:** Pick an id (e.g. `myrun-20260411`) and pass **`--session-id <id>`** to **`build-trt`**, **`eval-trt`**, and **`trt-bench`** (when you omit **`--log-file`**, logs go under `artifacts/pipeline_e2e/sessions/<id>/…`). Or set **`export SESSION_ID=myrun-20260411`** once in the shell: every command uses it automatically until you override with **`--session-id`**. Then run **`model-opt-yolo report-runs`** (or **`report-runs --session-id …`**) to generate **`report_<id>.md`** in that session folder.
+**Same `session_id` for manual runs:** Pick an id (e.g. `myrun-20260411`) and pass **`--session-id <id>`** to **`build-trt`**, **`eval-trt`**, and **`trt-bench`** (when you omit **`--log-file`**, logs go under `artifacts/pipeline_e2e/sessions/<id>/…`). Or set **`export SESSION_ID=myrun-20260411`** once in the shell: every command uses it automatically until you override with **`--session-id`**. Then run **`modelopt-onnx-ptq report-runs`** (or **`report-runs --session-id …`**) to generate **`report_<id>.md`** in that session folder.
 
 ```mermaid
 flowchart TD
   subgraph EXT["Outside this repository — your framework and exporter"]
-    A[Trained weights] --> B["Export to ONNX<br/>(your CLI — not model-opt-yolo)"]
+    A[Trained weights] --> B["Export to ONNX<br/>(your CLI — not modelopt-onnx-ptq)"]
   end
   B --> C[models/*.onnx]
   C --> H[download-coco]
-  H --> I[model-opt-yolo calib]
+  H --> I[modelopt-onnx-ptq calib]
   I --> J[artifacts/calibration/*.npy]
-  J --> Q["model-opt-yolo quantize<br/>(optional --autotune)"]
+  J --> Q["modelopt-onnx-ptq quantize<br/>(optional --autotune)"]
   Q --> L[artifacts/quantized/*.quant.onnx]
-  L --> M[model-opt-yolo build-trt]
+  L --> M[modelopt-onnx-ptq build-trt]
   M --> N[artifacts/trt_engine/*.engine]
-  N --> O[model-opt-yolo eval-trt<br/>COCO mAP]
+  N --> O[modelopt-onnx-ptq eval-trt<br/>COCO mAP]
 ```
 
 | Step | Action |
 |------|--------|
 | 1 | **Export** detector to **ONNX** in your training stack → place under `models/` (export commands are **not** provided here) |
 | 2 | **Images + annotations** for calib and eval (`download-coco` or your layout) |
-| 3 | **Calibration** — `model-opt-yolo calib` → `calib.npy` |
-| 4 | **PTQ** — `model-opt-yolo quantize` with `--calibration_data` (optional `--autotune`) |
-| 5 | **Engine** — `model-opt-yolo build-trt` (default `--mode strongly-typed` for PTQ ONNX; [CLI reference](cli-reference.md#model-opt-yolo-build-trt)) |
-| 6 | **Eval** — `model-opt-yolo eval-trt --output-format …` ([CLI reference](cli-reference.md#model-opt-yolo-eval-trt)) |
-| 7 | **Bench** (optional but needed for QPS in the report) — `model-opt-yolo trt-bench --engine …` |
-| 8 | **Report** — `report-runs` on your `trt-bench` / `eval-trt` log directories, or **`report-runs --session-id <id>`** if you used `--session-id` on the steps above ([CLI reference](cli-reference.md#model-opt-yolo-report-runs)) |
+| 3 | **Calibration** — `modelopt-onnx-ptq calib` → `calib.npy` |
+| 4 | **PTQ** — `modelopt-onnx-ptq quantize` with `--calibration_data` (optional `--autotune`) |
+| 5 | **Engine** — `modelopt-onnx-ptq build-trt` (default `--mode strongly-typed` for PTQ ONNX; [CLI reference](cli-reference.md#modelopt-onnx-ptq-build-trt)) |
+| 6 | **Eval** — `modelopt-onnx-ptq eval-trt --output-format …` ([CLI reference](cli-reference.md#modelopt-onnx-ptq-eval-trt)) |
+| 7 | **Bench** (optional but needed for QPS in the report) — `modelopt-onnx-ptq trt-bench --engine …` |
+| 8 | **Report** — `report-runs` on your `trt-bench` / `eval-trt` log directories, or **`report-runs --session-id <id>`** if you used `--session-id` on the steps above ([CLI reference](cli-reference.md#modelopt-onnx-ptq-report-runs)) |
 
 ---
 
@@ -127,7 +127,7 @@ Autotune is a **flag on quantization**, not a separate step. It is implemented i
 **Examples:**
 
 ```bash
-model-opt-yolo quantize \
+modelopt-onnx-ptq quantize \
   --calibration_data artifacts/calibration/calib.npy \
   --onnx_path models/yolo.onnx \
   --autotune default
@@ -136,10 +136,10 @@ model-opt-yolo quantize \
 **End-to-end:** `pipeline-e2e --quant-matrix all` runs the full six mode/method pairs. With **`--autotune`**, int8 (and int4 flag passthrough) use autotune; fp8 steps use standard PTQ. The pipeline logs a notice when the plan includes fp8 and `--autotune` is set.
 
 ```bash
-model-opt-yolo pipeline-e2e --onnx models/yolo.onnx --quant-matrix all --autotune default --continue-on-error
+modelopt-onnx-ptq pipeline-e2e --onnx models/yolo.onnx --quant-matrix all --autotune default --continue-on-error
 ```
 
-Passthrough flags for fine control (e.g. TRT shapes, timing) go after `--` to `modelopt.onnx.quantization`; see [CLI reference — quantize](cli-reference.md#model-opt-yolo-quantize).
+Passthrough flags for fine control (e.g. TRT shapes, timing) go after `--` to `modelopt.onnx.quantization`; see [CLI reference — quantize](cli-reference.md#modelopt-onnx-ptq-quantize).
 
 ---
 

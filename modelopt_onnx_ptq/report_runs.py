@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from model_opt_yolo.session_paths import (
+from modelopt_onnx_ptq.session_paths import (
     artifacts_root,
     effective_session_id,
     pipeline_e2e_session_eval_logs,
@@ -627,7 +627,7 @@ def _best_config_section_lines(rows: list[dict], fp16_row: dict | None) -> list[
             lines.append("")
             lines.append(
                 "The combined score balances accuracy and throughput; adjust `_combined_score` in "
-                "`model_opt_yolo/report_runs.py` if you want different weighting."
+                "`modelopt_onnx_ptq/report_runs.py` if you want different weighting."
             )
             lines.append("")
             return lines
@@ -739,7 +739,7 @@ def _best_config_section_lines(rows: list[dict], fp16_row: dict | None) -> list[
     lines.append("")
     lines.append(
         "The combined score balances accuracy and throughput; adjust `_combined_score` in "
-        "`model_opt_yolo/report_runs.py` if you want different weighting."
+        "`modelopt_onnx_ptq/report_runs.py` if you want different weighting."
     )
     lines.append("")
     return lines
@@ -893,9 +893,9 @@ def _environment_table_lines(
     lines.append("| Item | Value |")
     lines.append("|---|---|")
 
-    moy = _dist_version("model-opt-yolo")
+    moy = _dist_version("modelopt-onnx-ptq")
     lines.append(
-        f"| model-opt-yolo | `{_escape_md_cell(moy or 'unknown')}` |"
+        f"| modelopt-onnx-ptq | `{_escape_md_cell(moy or 'unknown')}` |"
     )
 
     mo = _dist_version("nvidia-modelopt", "modelopt")

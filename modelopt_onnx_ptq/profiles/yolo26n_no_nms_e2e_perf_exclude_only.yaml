@@ -6,7 +6,7 @@
 # structural ops that often regress accuracy or fusion (Resize, Concat).
 # Compare mAP + trt-bench vs backbone-only whitelist profiles.
 #
-# Use: model-opt-yolo quantize ... --profile yolo26n_no_nms_e2e_perf_exclude_only
+# Use: modelopt-onnx-ptq quantize ... --profile yolo26n_no_nms_e2e_perf_exclude_only
 #      Optional: --suffix .exconly.quant.onnx
 # =============================================================================
 

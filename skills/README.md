@@ -8,7 +8,7 @@ This folder ships **structured context** for **AI coding agents**: assistants th
 
 ## What each file is for
 
-### Umbrella: [`model-opt-yolo-dev/SKILL.md`](model-opt-yolo-dev/SKILL.md)
+### Umbrella: [`modelopt-onnx-ptq-dev/SKILL.md`](modelopt-onnx-ptq-dev/SKILL.md)
 
 Single entry point for **repository conventions**: layout, pipeline order, code style, docs policy, ONNX quantization notes, Docker/CUDA hints, calibration expectations, and performance-measurement steps. It links out to the domain skills below instead of duplicating every command.
 
@@ -16,7 +16,7 @@ Use it when the agent should **change code**, **add CLI flags**, or **align with
 
 ### Domain: [`onnx-ptq/SKILL.md`](onnx-ptq/SKILL.md)
 
-Step-by-step **PTQ**: environment (Docker/local), `calib`, `model-opt-yolo quantize`, `pipeline-e2e`, mode/method tables (int8/fp8/int4), autotune presets, validation snippet, `build-trt`.
+Step-by-step **PTQ**: environment (Docker/local), `calib`, `modelopt-onnx-ptq quantize`, `pipeline-e2e`, mode/method tables (int8/fp8/int4), autotune presets, validation snippet, `build-trt`.
 
 ### Reference: [`onnx-ptq/reference.md`](onnx-ptq/reference.md)
 
@@ -50,7 +50,7 @@ The **`description`** field helps tools decide when to attach the skill. Body ma
 
 ## How agents should use this
 
-1. **Implement or refactor** → read [`model-opt-yolo-dev/SKILL.md`](model-opt-yolo-dev/SKILL.md) first (conventions + rules).
+1. **Implement or refactor** → read [`modelopt-onnx-ptq-dev/SKILL.md`](modelopt-onnx-ptq-dev/SKILL.md) first (conventions + rules).
 2. **Run quantize / pipeline-e2e** → [`onnx-ptq/SKILL.md`](onnx-ptq/SKILL.md) + [`reference.md`](onnx-ptq/reference.md) as needed.
 3. **Compare PTQ modes or profiles / tune latency** → [`ptq-trt-performance/SKILL.md`](ptq-trt-performance/SKILL.md).
 4. **Errors from modelopt, ORT, or TRT** → [`modelopt-troubleshooting/SKILL.md`](modelopt-troubleshooting/SKILL.md).

@@ -1,14 +1,14 @@
 ---
-name: model-opt-yolo-dev
+name: modelopt-onnx-ptq-dev
 description: >-
-  Model-Optimizer-YOLO: repo layout, project rules, ONNX PTQ (Model Optimizer),
+  Model-Optimizer-ONNX: repo layout, project rules, ONNX PTQ (Model Optimizer),
   Docker/CUDA, calibration, pipeline-e2e / trt-bench / eval-trt, YAML profiles,
   backbone-neck-head Conv whitelists, and troubleshooting. Use the umbrella
   file for conventions; use skills/onnx-ptq, skills/ptq-trt-performance, and
   skills/modelopt-troubleshooting for full step-by-step and API tables.
 ---
 
-# Model-Optimizer-YOLO — development skill (umbrella)
+# Model-Optimizer-ONNX — development skill (umbrella)
 
 **Agent Skills** for this project live under **`skills/`**: this umbrella file plus domain skills (onnx-ptq, ptq-trt-performance, modelopt-troubleshooting). See **[`skills/README.md`](../README.md)** for how to use them.
 
@@ -31,14 +31,14 @@ The sections below collect **maintainer conventions** for this repository. If a 
 
 ### A.1 Project overview
 
-ONNX post-training quantization (PTQ) pipeline for YOLO/object-detection models using **NVIDIA Model Optimizer** (`nvidia-modelopt[onnx]`), calibrated with COCO val2017 data, targeting TensorRT deployment.
+ONNX post-training quantization (PTQ) pipeline for object-detection and vision ONNX models using **NVIDIA Model Optimizer** (`nvidia-modelopt[onnx]`), calibrated with COCO val2017 data, targeting TensorRT deployment.
 
 **Repository layout**
 
 | Path | Purpose |
 |------|---------|
-| `docker/` | Container image definition; **TREx** under `/workspace/TREx` in **`env_trex`** (`install.sh --venv --full`), separate from `model-opt-yolo` — see `docs/docker-reference.md` |
-| `model_opt_yolo/`, `pyproject.toml` | Installable package (`pip install .`); CLI: **`model-opt-yolo`** (`download-coco`, `calib`, `quantize`, `build-trt`, `trt-bench`, `eval-trt`, `report-runs` with optional `--session-id`, `pipeline-e2e` includes FP16 baseline + PTQ) |
+| `docker/` | Container image definition; **TREx** under `/workspace/TREx` in **`env_trex`** (`install.sh --venv --full`), separate from `modelopt-onnx-ptq` — see `docs/docker-reference.md` |
+| `modelopt_onnx_ptq/`, `pyproject.toml` | Installable package (`pip install .`); CLI: **`modelopt-onnx-ptq`** (`download-coco`, `calib`, `quantize`, `build-trt`, `trt-bench`, `eval-trt`, `report-runs` with optional `--session-id`, `pipeline-e2e` includes FP16 baseline + PTQ) |
 | `models/` | Input ONNX weights (user-provided) |
 | `data/coco/` | Datasets (`val2017/`, `annotations/`); large files gitignored |
 | `artifacts/calibration/` | Calibration tensors (e.g. `calib_coco.npy`); gitignored |
@@ -69,7 +69,7 @@ ONNX FP32 → calib → quantize [--autotune] → build-trt → eval-trt → trt
 
 **Naming**
 
-- Quantized outputs: `<model_stem>.<mode>.<method><suffix>` (e.g. `yolo.int8.entropy.quant.onnx`).
+- Quantized outputs: `<model_stem>.<mode>.<method><suffix>` (e.g. `detector.int8.entropy.quant.onnx`).
 - Default calibration path: `artifacts/calibration/calib_coco.npy`.
 
 **Do not**
@@ -108,7 +108,7 @@ When adding new code or refactoring oversized files, apply these guidelines prag
 
 Whenever you **change behavior**, **CLI flags**, **defaults**, **paths**, or **workflows** in this repository, update the **same change** in user-facing documentation so it stays accurate.
 
-- **Primary locations:** `README.md`, `docs/*.md` (especially `docs/cli-reference.md`), and any strings shown by `model-opt-yolo --help` / subcommand help in `model_opt_yolo/`.
+- **Primary locations:** `README.md`, `docs/*.md` (especially `docs/cli-reference.md`), and any strings shown by `modelopt-onnx-ptq --help` / subcommand help in `modelopt_onnx_ptq/`.
 - **Scope:** If the change is user-visible (how to run a command, what a flag does, output layout, Docker/TREx notes), the docs must reflect it in the same PR or edit — do not leave stale examples or flag lists.
 - **Comments in code** still follow the rules below (minimal); this section is about **markdown docs and CLI help**, not inline comment volume.
 
@@ -254,7 +254,7 @@ python -m modelopt.onnx.quantization \
 
 **Note:** The CLI flag is `--calibration_data_path` (not `--calibration_data`).
 
-**YOLO / dynamic heads:** **`model-opt-yolo quantize`** defaults **`--high_precision_dtype`** to **`fp16`**. If `infer_shapes` fails, use **`fp32`**.
+**Dynamic heads / tricky exports:** **`modelopt-onnx-ptq quantize`** defaults **`--high_precision_dtype`** to **`fp16`**. If `infer_shapes` fails, use **`fp32`**.
 
 **Autotune (Q/DQ placement optimization)** — integrated in `quantize()`, not a separate command. Internal steps: preprocess → (optional) autotune regions → calibration → insert Q/DQ → export.
 
@@ -283,14 +283,14 @@ Default order: `["cpu", "cuda:0", "trt"]`. If TRT/CUDA fail, ORT falls back to C
 
 - Type: `np.ndarray` (single input) or `dict[str, np.ndarray]` (multi-input).
 - Shape must match model's input spec (batch dim is split into iterations automatically).
-- Recommended: >= 500 images for CNN/YOLO, ~64 for INT4 weight-only.
+- Recommended: >= 500 images for CNN/detection models, ~64 for INT4 weight-only.
 - Preprocessing **must** match ONNX export (size, RGB/BGR, letterbox, normalization).
 
 **Common parameters**
 
 - `--calibrate_per_node`: Reduces VRAM during calibration (int8/fp8 only).
 - `--use_external_data_format`: Required for models > 2GB.
-- `--high_precision_dtype`: fp16 (default in `model-opt-yolo quantize`) | fp32 | bf16 for non-quantized ops.
+- `--high_precision_dtype`: fp16 (default in `modelopt-onnx-ptq quantize`) | fp32 | bf16 for non-quantized ops.
 - `--simplify`: Runs onnxsim before quantization.
 - `--trt_plugins`: Space-separated `.so` paths for custom TRT ops.
 
@@ -339,13 +339,13 @@ Model Optimizer is often installed from **GitHub `main`** (PyPI wheel may lack f
 
 **Docker run**
 
-Bind-mount persistent dirs (`models/`, `data/`, `artifacts/`). Optional dev mount: `-v "$(pwd)":/workspace/model-opt-yolo` from a clone.
+Bind-mount persistent dirs (`models/`, `data/`, `artifacts/`). Optional dev mount: `-v "$(pwd)":/workspace/modelopt-onnx-ptq` from a clone.
 
 ---
 
 ### A.8 Calibration data preparation
 
-**YOLO preprocessing pipeline (default)**
+**Letterbox preprocessing (default for common detection exports)**
 
 1. Load image as RGB (PIL/OpenCV)
 2. Letterbox resize to `img_size` (default 640), maintaining aspect ratio with gray padding (114,114,114)
@@ -355,7 +355,7 @@ Bind-mount persistent dirs (`models/`, `data/`, `artifacts/`). Optional dev moun
 
 **Preprocessing must match export**
 
-| Parameter | YOLO default | Adjust if different |
+| Parameter | Default (this CLI) | Adjust if different |
 |-----------|-------------|---------------------|
 | Color space | RGB | `--bgr` flag |
 | Resize method | Letterbox | `--no-letterbox` for stretch |
@@ -380,7 +380,7 @@ Read **[`skills/ptq-trt-performance/SKILL.md`](ptq-trt-performance/SKILL.md)** f
 1. **`pipeline-e2e --onnx models/…onnx`** — required.
 2. **`--input-name`** / **`--output-format`** — must match the export (e.g. `input` + `ultralytics`).
 3. **`--quant-matrix all`** (or `int8.all`, `fp8.entropy`, …) — selects PTQ combos.
-4. Optional **`--quantize-profile`** — YAML applied to every `quantize` (e.g. a profile under `model_opt_yolo/profiles/`).
+4. Optional **`--quantize-profile`** — YAML applied to every `quantize` (e.g. a profile under `modelopt_onnx_ptq/profiles/`).
 5. Optional **`--high-precision-dtype fp16`** — high-precision strips in FP16 after PTQ.
 6. Omit **`--autotune`** if tuning via profiles only.
 7. **`--session-id <id>`** — keeps all logs under `artifacts/pipeline_e2e/sessions/<id>/`.
@@ -412,5 +412,5 @@ Do not commit calibration `.npy`, engines, or large binaries.
 
 ## When to use this umbrella vs a domain skill
 
-- **Umbrella (this file):** Conventions, layout, rules, and pointers — editing **`model_opt_yolo/`** or docs.
+- **Umbrella (this file):** Conventions, layout, rules, and pointers — editing **`modelopt_onnx_ptq/`** or docs.
 - **Domain skills:** Running commands, profiling, or debugging quantization/TRT end-to-end.

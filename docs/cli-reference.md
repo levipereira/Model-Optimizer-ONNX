@@ -1,9 +1,9 @@
-# CLI reference — `model-opt-yolo`
+# CLI reference — `modelopt-onnx-ptq`
 
-After `pip install -e .`, the entry point **`model-opt-yolo`** dispatches subcommands:
+After `pip install -e .`, the entry point **`modelopt-onnx-ptq`** dispatches subcommands:
 
 ```bash
-model-opt-yolo --help
+modelopt-onnx-ptq --help
 ```
 
 | Subcommand | Purpose |
@@ -20,7 +20,7 @@ model-opt-yolo --help
 
 ---
 
-## `model-opt-yolo download-coco`
+## `modelopt-onnx-ptq download-coco`
 
 Fetches **COCO val2017** images and **2017 train/val annotations** (so you get `instances_val2017.json` for mAP). Default output layout matches the rest of this repo: `data/coco/val2017/`, `data/coco/annotations/`.
 
@@ -33,7 +33,7 @@ Skips a download if the target folder/file already exists (same behavior as the 
 
 ---
 
-## `model-opt-yolo calib`
+## `modelopt-onnx-ptq calib`
 
 Builds `calib.npy` for Model Optimizer calibration.
 
@@ -52,7 +52,7 @@ Builds `calib.npy` for Model Optimizer calibration.
 
 ---
 
-## `model-opt-yolo quantize`
+## `modelopt-onnx-ptq quantize`
 
 Runs ONNX PTQ via Model Optimizer.
 
@@ -67,8 +67,8 @@ Runs ONNX PTQ via Model Optimizer.
 | `--quantize_mode` | `fp8`, `int8`, `int4` |
 | `--calibration_method` | e.g. `entropy`, `max` (mode-dependent) |
 | `--high_precision_dtype` | Default **`fp16`** (aligns with TensorRT mixed precision); use **`fp32`** if PTQ `shape_inference` fails on your graph |
-| `--autotune` | Q/DQ placement tuning via TensorRT timing (`quick` \| `default` \| `extensive`). Use with **int8**; **fp8** + autotune often fails on YOLO-style graphs (operator coverage). **int4** ignores autotune. Needs GPU + TensorRT. |
-| `--profile` | YAML file (built-in name or path) with Model Optimizer include/exclude rules (`op_types_to_*`, `nodes_to_*`, optional `defaults.autotune`, …). Shipped examples: `ultralytics_yolo26_flexible`, `matmul_fp_exclude` under `model_opt_yolo/profiles/`. Requires **PyYAML**. See [PTQ performance workflow](quantization-performance-workflow.md). |
+| `--autotune` | Q/DQ placement tuning via TensorRT timing (`quick` \| `default` \| `extensive`). Use with **int8**; **fp8** + autotune often fails on some detection ONNX graphs (operator coverage). **int4** ignores autotune. Needs GPU + TensorRT. |
+| `--profile` | YAML file (built-in name or path) with Model Optimizer include/exclude rules (`op_types_to_*`, `nodes_to_*`, optional `defaults.autotune`, …). Shipped examples: `ultralytics_yolo26_flexible`, `matmul_fp_exclude` under `modelopt_onnx_ptq/profiles/`. Requires **PyYAML**. See [PTQ performance workflow](quantization-performance-workflow.md). |
 | `--suffix` | Output suffix (default `.quant.onnx`) |
 
 **FP8 hardware:** `--quantize_mode fp8` requires a **CUDA GPU with compute capability ≥ 8.9** (FP8 tensor cores). Examples: **Ada Lovelace** (RTX 4090, 4080, 4070, …) — CC 8.9; **Hopper** (H100, H200) — CC 9.0; **Blackwell** (B200, RTX 5090, 5080, …) — CC 10.0+.
@@ -77,7 +77,7 @@ Runs ONNX PTQ via Model Optimizer.
 
 Everything after a lone `--` is appended to the same command as `python -m modelopt.onnx.quantization`. The wrapper **always** passes these flags (do **not** repeat them after `--`, or you will duplicate arguments):
 
-| Already set by `model-opt-yolo quantize` | Source in this CLI |
+| Already set by `modelopt-onnx-ptq quantize` | Source in this CLI |
 |------------------------------------------|--------------------|
 | `--onnx_path` | Per input file |
 | `--quantize_mode` | `--quantize_mode` |
@@ -90,10 +90,10 @@ Example:
 
 ```bash
 # Quantize with integrated autotune
-model-opt-yolo quantize --calibration_data ... --onnx_path ... --autotune default
+modelopt-onnx-ptq quantize --calibration_data ... --onnx_path ... --autotune default
 
 # Pass extra flags through to modelopt
-model-opt-yolo quantize --calibration_data ... --onnx_path ... -- --calibrate_per_node --simplify
+modelopt-onnx-ptq quantize --calibration_data ... --onnx_path ... -- --calibrate_per_node --simplify
 ```
 
 For the authoritative list on your install, run:
@@ -131,7 +131,7 @@ The following are **additional** `modelopt.onnx.quantization` options you can pa
 | `--use_external_data_format` | Write large weights to `.onnx_data` when needed. |
 | `--keep_intermediate_files` | Keep intermediate files from conversion/calibration. |
 | `--log_level` | `DEBUG` / `INFO` / `WARNING` / `ERROR` (case variants accepted). |
-| `--log_file` | Log file for the quantization process (separate from `model-opt-yolo`’s `--log-file`). |
+| `--log_file` | Log file for the quantization process (separate from `modelopt-onnx-ptq`’s `--log-file`). |
 | `--trt_plugins` | Paths to custom TensorRT `.so` plugins (enables TensorRT EP). |
 | `--trt_plugins_precision` | Per custom-op precision spec (`op:fp16`, or detailed in/out lists — see `--help`). |
 
@@ -169,11 +169,11 @@ When `--autotune` is set on upstream, it tunes Q/DQ placement for TensorRT. Thes
 | `--autotune_timing_runs` | Timed runs for latency. |
 | `--autotune_trtexec_args` | Extra `trtexec` arguments as one quoted string. |
 
-> **Note:** The `--autotune*` flags above are the **in-module** PTQ autotune integrated into `python -m modelopt.onnx.quantization`, passed through by `model-opt-yolo quantize --autotune`.
+> **Note:** The `--autotune*` flags above are the **in-module** PTQ autotune integrated into `python -m modelopt.onnx.quantization`, passed through by `modelopt-onnx-ptq quantize --autotune`.
 
 ---
 
-## `model-opt-yolo build-trt`
+## `modelopt-onnx-ptq build-trt`
 
 Runs **`trtexec`** to compile an ONNX file into a TensorRT **`.engine`**. Requires `trtexec` on `PATH` (TensorRT / NGC container).
 
@@ -209,28 +209,28 @@ For **FP32 / non-quantized** ONNX (no Q/DQ): enables FP16 where the builder can 
 
 **`fp16-int8`** — `trtexec` **`--fp16`** + **`--int8`**
 
-Classic TensorRT combination for **FP** ONNX when you want both FP16 and INT8 kernels in the search space. For **YOLO-style** models from a **non-quantized** checkpoint, this is often a **good practical choice** (with TensorRT’s INT8 requirements, calibration, and operator support as documented by NVIDIA). It is **not** a drop-in substitute for Model Optimizer PTQ artifacts; those are a separate pipeline.
+Classic TensorRT combination for **FP** ONNX when you want both FP16 and INT8 kernels in the search space. For **typical detector** exports from a **non-quantized** checkpoint, this is often a **good practical choice** (with TensorRT’s INT8 requirements, calibration, and operator support as documented by NVIDIA). It is **not** a drop-in substitute for Model Optimizer PTQ artifacts; those are a separate pipeline.
 
 | `--mode` | Flags | Summary |
 |----------|-------|---------|
 | **`strongly-typed`** (default) | **`--stronglyTyped`** | Strict ONNX/Q/DQ types; default for PTQ/quantized ONNX. |
 | **`best`** | **`--best`** | Broad tactic / precision search; common for non-quantized FP graphs. |
 | **`fp16`** | **`--fp16`** | Non-quantized ONNX → FP16 where applicable. |
-| **`fp16-int8`** | **`--fp16`** **`--int8`** | FP + INT8 search space; often recommended for YOLO from FP ONNX (see TensorRT docs). |
+| **`fp16-int8`** | **`--fp16`** **`--int8`** | FP + INT8 search space; often recommended for detector exports from FP ONNX (see TensorRT docs). |
 
 ### Pass-through (`--` …)
 
 Arguments after `--` are appended to the **`trtexec`** command (after the built-in flags). Use this to **add** flags or **override** behavior (later tokens win depending on `trtexec`).
 
 ```bash
-model-opt-yolo build-trt --onnx model.fp.onnx --img-size 640 --batch 1 -- --verbose
-model-opt-yolo build-trt --onnx model.onnx --mode best --img-size 640
-model-opt-yolo build-trt --onnx model.onnx --mode fp16-int8 --img-size 640
+modelopt-onnx-ptq build-trt --onnx model.fp.onnx --img-size 640 --batch 1 -- --verbose
+modelopt-onnx-ptq build-trt --onnx model.onnx --mode best --img-size 640
+modelopt-onnx-ptq build-trt --onnx model.onnx --mode fp16-int8 --img-size 640
 ```
 
 ---
 
-## `model-opt-yolo trex-analyze`
+## `modelopt-onnx-ptq trex-analyze`
 
 End-to-end **TensorRT Engine Explorer (TREx)** workflow for **one ONNX** and a **`build-trt`-style `--mode`**: runs **`trtexec`** twice — **build** (with **`--profilingVerbosity=detailed`**, **`--exportLayerInfo`**, **`--dumpLayerInfo`**) and **profile** (**`--loadEngine`**, **`--exportTimes`**, **`--exportProfile`**, **`--exportLayerInfo`**, CUDA graph + separate profile run, matching the upstream TREx `process_engine` pattern). Writes everything under **`artifacts/trex/runs/<stem>_<mode>_<timestamp>/`** (or **`artifacts/pipeline_e2e/sessions/<id>/trex/…`** with **`--session-id`**).
 
@@ -240,7 +240,7 @@ End-to-end **TensorRT Engine Explorer (TREx)** workflow for **one ONNX** and a *
 - **`--graph`** — **single `--onnx`**: TREx **`DotGraph`** plus trtexec timing/profile JSON; format via **`--graph-format`** (`svg` default, or `png` / `pdf`). Requires **Graphviz** (`dot`) on **`PATH`**. No report or second ONNX.
 - **`--report`** — **single `--onnx`**: Markdown “Engine Report Card” only (`engine_report_card.md` under **`mode__<mode>/`** unless **`--engine-report-md [PATH]`**). **`--engine-report-max-layer-rows`** limits the layer table. **`--engine-report-md`** requires **`--report`**. No graph or compare.
 
-Requires **`trex`**. On the Docker image, TREx is in **`env_trex`** (not the same Python as **`quantize`** / **`build-trt`**); **`trex-analyze`** first adds **`$TREX_VENV/.../site-packages`** to **`sys.path`**, then **re-executes** with **`$TREX_VENV/bin/python`** only if **trex** is still missing (override **`TREX_VENV`**, disable re-exec with **`MODELOPT_TREX_NO_REEXEC=1`**). Locally, use a **dedicated venv** for **`trt-engine-explorer`** or install **`model-opt-yolo`** into that venv too.
+Requires **`trex`**. On the Docker image, TREx is in **`env_trex`** (not the same Python as **`quantize`** / **`build-trt`**); **`trex-analyze`** first adds **`$TREX_VENV/.../site-packages`** to **`sys.path`**, then **re-executes** with **`$TREX_VENV/bin/python`** only if **trex** is still missing (override **`TREX_VENV`**, disable re-exec with **`MODELOPT_TREX_NO_REEXEC=1`**). Locally, use a **dedicated venv** for **`trt-engine-explorer`** or install **`modelopt-onnx-ptq`** into that venv too.
 
 **Common arguments**
 
@@ -266,19 +266,19 @@ Extra **`trtexec`** tokens after **`--`** are appended to **both** the build and
 
 ```bash
 # Profile / layer JSON only (no --graph, --report, or --compare)
-model-opt-yolo trex-analyze --onnx models/yolo.onnx --mode strongly-typed --img-size 640
+modelopt-onnx-ptq trex-analyze --onnx models/yolo.onnx --mode strongly-typed --img-size 640
 
 # One mode per invocation
-model-opt-yolo trex-analyze --onnx models/yolo.onnx --mode strongly-typed --img-size 640 --graph
-model-opt-yolo trex-analyze --onnx models/yolo.onnx --mode strongly-typed --img-size 640 --report
-model-opt-yolo trex-analyze --onnx models/yolo_fp16.onnx --mode fp16 --img-size 640 \\
+modelopt-onnx-ptq trex-analyze --onnx models/yolo.onnx --mode strongly-typed --img-size 640 --graph
+modelopt-onnx-ptq trex-analyze --onnx models/yolo.onnx --mode strongly-typed --img-size 640 --report
+modelopt-onnx-ptq trex-analyze --onnx models/yolo_fp16.onnx --mode fp16 --img-size 640 \\
   --compare --compare-onnx artifacts/quantized/yolo.int8.entropy.quant.onnx \\
   --compare-onnx-mode strongly-typed
 ```
 
 ---
 
-## `model-opt-yolo trt-bench`
+## `modelopt-onnx-ptq trt-bench`
 
 Runs **`trtexec`** with **`--loadEngine`** on an **existing** TensorRT **`.engine`** (no ONNX rebuild). Shapes come from the serialized plan — there is no **`--batch`** / **`--img-size`** here. Follows NVIDIA’s [TensorRT performance best practices](https://docs.nvidia.com/deeplearning/tensorrt/latest/performance/best-practices.html) (warmup, iterations, duration; plus CUDA graph, spin wait, no transfers for isolated GPU timing).
 
@@ -296,13 +296,13 @@ Runs **`trtexec`** with **`--loadEngine`** on an **existing** TensorRT **`.engin
 Built-in `trtexec` flags include **`--useCudaGraph`**, **`--useSpinWait`**, **`--noDataTransfers`**.
 
 ```bash
-model-opt-yolo trt-bench --engine artifacts/trt_engine/model.int8.entropy.quant.engine
-model-opt-yolo trt-bench --engine model.engine --warm-up 500 --iterations 100 --duration 60 -- --avgRuns=20
+modelopt-onnx-ptq trt-bench --engine artifacts/trt_engine/model.int8.entropy.quant.engine
+modelopt-onnx-ptq trt-bench --engine model.engine --warm-up 500 --iterations 100 --duration 60 -- --avgRuns=20
 ```
 
 ---
 
-## `model-opt-yolo eval-trt`
+## `modelopt-onnx-ptq eval-trt`
 
 Runs **TensorRT** inference on **COCO val2017** and computes **bbox mAP** with **pycocotools**. Preprocessing uses the same **letterbox** + **÷255** convention as `calib` (aligned with common Ultralytics-style exports).
 
@@ -337,21 +337,21 @@ Examples:
 
 ```bash
 # Four-tensor layout (levipereira/ultralytics onnx_trt)
-model-opt-yolo eval-trt --output-format onnx_trt --engine model.engine \
+modelopt-onnx-ptq eval-trt --output-format onnx_trt --engine model.engine \
   --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json
 
 # Ultralytics single tensor (explicit name if needed)
-model-opt-yolo eval-trt --output-format ultralytics --output-tensor output0 --engine model.engine \
+modelopt-onnx-ptq eval-trt --output-format ultralytics --output-tensor output0 --engine model.engine \
   --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json
 
 # DeepStream-Yolo layout (NMS in eval)
-model-opt-yolo eval-trt --output-format deepstream_yolo --output-tensor output --engine model.engine \
+modelopt-onnx-ptq eval-trt --output-format deepstream_yolo --output-tensor output --engine model.engine \
   --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json
 ```
 
 ---
 
-## `model-opt-yolo pipeline-e2e`
+## `modelopt-onnx-ptq pipeline-e2e`
 
 Orchestrates **calib** → **FP16 baseline** on the original ONNX (`build-trt --mode fp16` → **eval-trt** → **trt-bench**) → **quantize** → **build-trt** → **eval-trt** → **trt-bench** (per combo) → **report-runs** under a session id (logs under `artifacts/pipeline_e2e/sessions/<id>/`). Engines use basename `<stem>.b<batch>_i<img-size>.engine` (e.g. `<onnx-stem>.fp16.b1_i640.engine` for the FP16 baseline) so the report can compare **FP16 TensorRT** vs **quantized** engines without clobbering across shapes.
 
@@ -360,7 +360,7 @@ Orchestrates **calib** → **FP16 baseline** on the original ONNX (`build-trt --
 | `--onnx` | Input FP32 ONNX (**required**) |
 | `--batch` | Passed to **build-trt** (default `1`); included in the default engine filename (`bB_iN`). |
 | `--session-id` | Session directory name under `artifacts/pipeline_e2e/sessions/`. Default: **`SESSION_ID`** env var if set, else timestamp. CLI overrides **`SESSION_ID`**. |
-| `--quant-matrix` | **SPEC** string: default **`int8.entropy`**. Keyword **`all`** = full 6-combo grid. **`mode.all`** = both methods for `int8`, `fp8`, or `int4`. **`mode.method`** = one run. Comma-separated = union (e.g. `int8.all,fp8.entropy`). Details: [Workflow](workflow.md). **FP8** combos need a GPU with **CC ≥ 8.9** (see **FP8 hardware** under [`quantize`](#model-opt-yolo-quantize)). |
+| `--quant-matrix` | **SPEC** string: default **`int8.entropy`**. Keyword **`all`** = full 6-combo grid. **`mode.all`** = both methods for `int8`, `fp8`, or `int4`. **`mode.method`** = one run. Comma-separated = union (e.g. `int8.all,fp8.entropy`). Details: [Workflow](workflow.md). **FP8** combos need a GPU with **CC ≥ 8.9** (see **FP8 hardware** under [`quantize`](#modelopt-onnx-ptq-quantize)). |
 | `--quantize-profile` | Optional built-in name or path to a YAML file — passed to **each** `quantize` as **`--profile`** (same rules for every combo). See [PTQ performance workflow](quantization-performance-workflow.md#finding-the-best-mode-or-method-with-pipeline-e2e). |
 | `--high-precision-dtype` | **`fp16`** (default) \| **`fp32`** \| **`bf16`** — forwarded to every `quantize` (`--high_precision_dtype`). |
 | `--autotune` | Same presets as `quantize`. **int8** steps receive `--autotune` when set; **fp8** steps always run **standard PTQ** (no `--autotune` passed). **`int4`** receives the flag but Model Optimizer **ignores** integrated autotune for int4. |
@@ -368,11 +368,11 @@ Orchestrates **calib** → **FP16 baseline** on the original ONNX (`build-trt --
 | `--no-fp16-baseline` | Skip the FP16 baseline on the original ONNX (only run PTQ combos) |
 | `--no-report` | Skip final Markdown report |
 
-See `model-opt-yolo pipeline-e2e --help` for image paths, `--input-name`, bench duration, etc.
+See `modelopt-onnx-ptq pipeline-e2e --help` for image paths, `--input-name`, bench duration, etc.
 
 ---
 
-## `model-opt-yolo report-runs`
+## `modelopt-onnx-ptq report-runs`
 
 Scans log directories and writes a Markdown report with tables plus **PNG** charts next to the `.md` file. With **`--session-id`**, charts are `chart_ips_latency_<id>.png` and `chart_eval_<id>.png`; without a session, the same pattern uses the output file stem as `<id>`. Used standalone or at the end of `pipeline-e2e`.
 
@@ -390,6 +390,6 @@ The report starts with an **FP16 baseline** table when a `*.fp16` engine row exi
 
 ## Environment variables (logging)
 
-- `MODELOPT_YOLO_LOGLEVEL` or `LOGLEVEL` — `DEBUG`, `INFO`, `WARNING`, `ERROR`
+- `MODELOPT_ONNX_PTQ_LOGLEVEL` or `LOGLEVEL` — `DEBUG`, `INFO`, `WARNING`, `ERROR` (`MODELOPT_ONNX_LOGLEVEL` / `MODELOPT_YOLO_LOGLEVEL` are deprecated)
 - `MODELOPT_ARTIFACTS_ROOT` — root for artifacts (default: `<cwd>/artifacts`, created if missing)
 - `SESSION_ID` — default session id for `pipeline-e2e`, `build-trt`, `eval-trt`, `trt-bench`, and `report-runs` when `--session-id` is not passed (CLI wins over the variable)

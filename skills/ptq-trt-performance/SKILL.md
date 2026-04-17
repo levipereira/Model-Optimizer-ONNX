@@ -7,10 +7,10 @@ description: >-
   backbone/neck/head Conv splits from an ONNX for include_nodes regexes, and common pitfalls.
   Use when the user asks to benchmark PTQ, compare int8/fp8/int4, measure throughput,
   find the best profile, optimize latency, regional quantization, or evaluate quantization settings for
-  model-opt-yolo.
+  modelopt-onnx-ptq.
 ---
 
-# PTQ + TensorRT performance (model-opt-yolo)
+# PTQ + TensorRT performance (modelopt-onnx-ptq)
 
 ## Goal
 
@@ -26,12 +26,12 @@ Produce **comparable** numbers: same calibration tensor shapes, same `build-trt`
 
 ## Path A — Full mode/method grid (`pipeline-e2e`)
 
-Use **`model-opt-yolo pipeline-e2e`** when the user wants to compare **int8 / fp8 / int4** and calibration methods without hand-writing six commands.
+Use **`modelopt-onnx-ptq pipeline-e2e`** when the user wants to compare **int8 / fp8 / int4** and calibration methods without hand-writing six commands.
 
 1. Choose **`--quant-matrix`**:
    - **`all`** → six runs: `int8.{entropy,max}`, `fp8.{entropy,max}`, `int4.{awq_clip,rtn_dq}`.
    - **`int8.all`** → two int8 runs; combine with commas as needed (see `docs/workflow.md`).
-2. Optional: **`--quantize-profile <name>`** — same YAML profile for **every** quantize step (e.g. a YOLO26n backbone whitelist under `model_opt_yolo/profiles/`).
+2. Optional: **`--quantize-profile <name>`** — same YAML profile for **every** quantize step (e.g. a YOLO26n backbone whitelist under `modelopt_onnx_ptq/profiles/`).
 3. **`--high-precision-dtype`** defaults to **fp16** in **`quantize`** / **`pipeline-e2e`**; use **fp32** only if PTQ shape inference fails. Omit **`--autotune`** if the user wants profile-only tuning.
 4. Set **`--input-name`**, **`--output-format`**, **`--build-mode`** (default `strongly-typed` for PTQ ONNX).
 5. Use **`--session-id my_run`** so all logs sit under `artifacts/pipeline_e2e/sessions/<id>/`.
@@ -41,7 +41,7 @@ Use **`model-opt-yolo pipeline-e2e`** when the user wants to compare **int8 / fp
 **Report:** `pipeline-e2e` ends with **`report-runs`** using **`--merge-global-logs`**, which can mix in **older** bench/eval logs from global `artifacts/`. For a **session-only** table, re-run:
 
 ```bash
-model-opt-yolo report-runs --session-id <id> -o artifacts/pipeline_e2e/sessions/<id>/report_session_only.md
+modelopt-onnx-ptq report-runs --session-id <id> -o artifacts/pipeline_e2e/sessions/<id>/report_session_only.md
 ```
 
 (omit `--merge-global-logs` — not passed, so only session logs are used.)
@@ -85,7 +85,7 @@ These indices are **not universal**; re-validate if the ONNX is re-exported or r
 
 ### 3) Build and validate regexes
 
-- **Single contiguous range** (e.g. backbone only, or backbone+neck through `_75`): one pattern matching stem + `_1`…`_K` — see the shipped **YOLO26n** “perf” profiles under `model_opt_yolo/profiles/` (backbone-only and backbone+neck variants).
+- **Single contiguous range** (e.g. backbone only, or backbone+neck through `_75`): one pattern matching stem + `_1`…`_K` — see the shipped **YOLO26n** “perf” profiles under `modelopt_onnx_ptq/profiles/` (backbone-only and backbone+neck variants).
 - **Two disjoint ranges** (e.g. **backbone + head**, skipping neck): **two** `include_nodes` entries (OR of patterns); same repo ships a **backbone+head** variant (backbone `_1`…`_39` + head `_76`…`_101`).
 - **All Convs:** one pattern for stem + `_1`…`_101` — **backbone+neck+head** / full Conv whitelist variant in the same folder.
 
@@ -99,14 +99,14 @@ Use **`quantize --profile <your.yaml>`** (default high precision is **fp16**), u
 
 Some graphs fail **`build-trt --mode strongly-typed`** on mixed int8/FP16 boundaries (e.g. Conv+SiLU fusion). Retry **`--mode best`** for that quantized ONNX and note it in comparisons.
 
-**Shipped templates:** `model_opt_yolo/profiles/` — search for **YOLO26n** performance profiles (`*perf*.yaml`); copy and adjust indices/regexes for other exports.
+**Shipped templates:** `modelopt_onnx_ptq/profiles/` — search for **YOLO26n** performance profiles (`*perf*.yaml`); copy and adjust indices/regexes for other exports.
 
 ## Path C — Iterative YAML profile tuning
 
 When latency regresses or **Reformat** dominates in profiling:
 
 1. Run **`trex-analyze`** (and optionally **`--compare`** vs FP16 plan) — see `docs/quantization-performance-workflow.md`.
-2. Adjust **`include_nodes`** / **`exclude_nodes`** / **`exclude_op_types`** in a **copy** of a shipped profile under `model_opt_yolo/profiles/`.
+2. Adjust **`include_nodes`** / **`exclude_nodes`** / **`exclude_op_types`** in a **copy** of a shipped profile under `modelopt_onnx_ptq/profiles/`.
 3. Re-run Path B (or a smaller **`--quant-matrix`** slice).
 
 **Autotune:** optional **`quantize --autotune`**; int4 path does not use integrated autotune meaningfully — see `docs/workflow.md`.

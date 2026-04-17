@@ -23,9 +23,9 @@ From the repository root:
 pip install -e .
 ```
 
-This registers the **`model-opt-yolo`** command (see [CLI reference](cli-reference.md)).
+This registers the **`modelopt-onnx-ptq`** command (see [CLI reference](cli-reference.md)).
 
-**TREx:** do **not** install `trt-engine-explorer` (**trex**) into the same Python env as **`cupy`**, **PyTorch**, and **`model-opt-yolo`** unless you enjoy dependency fights (e.g. **trex** wants **`pandas==2.2.1`**; **cupy** may require **numpy ≥ 2**). Use a **dedicated venv** for TREx. The Docker image puts TREx in **`$TREX_VENV`**; **`trex-analyze`** switches to that interpreter when **trex** is not importable (see [Docker reference](docker-reference.md#trex-for-model-profiling)).
+**TREx:** do **not** install `trt-engine-explorer` (**trex**) into the same Python env as **`cupy`**, **PyTorch**, and **`modelopt-onnx-ptq`** unless you enjoy dependency fights (e.g. **trex** wants **`pandas==2.2.1`**; **cupy** may require **numpy ≥ 2**). Use a **dedicated venv** for TREx. The Docker image puts TREx in **`$TREX_VENV`**; **`trex-analyze`** switches to that interpreter when **trex** is not importable (see [Docker reference](docker-reference.md#trex-for-model-profiling)).
 
 ---
 
@@ -34,7 +34,7 @@ This registers the **`model-opt-yolo`** command (see [CLI reference](cli-referen
 For calibration and COCO mAP evaluation, download images and annotations:
 
 ```bash
-model-opt-yolo download-coco --output-dir data/coco
+modelopt-onnx-ptq download-coco --output-dir data/coco
 ```
 
 This creates `data/coco/val2017/` and `data/coco/annotations/instances_val2017.json` (~1.3 GB total). Skips files that already exist.
@@ -46,35 +46,35 @@ This creates `data/coco/val2017/` and `data/coco/annotations/instances_val2017.j
 Clone the repository and `cd` into it:
 
 ```bash
-git clone https://github.com/levipereira/Model-Optimizer-YOLO.git
-cd Model-Optimizer-YOLO
+git clone https://github.com/levipereira/Model-Optimizer-ONNX.git
+cd Model-Optimizer-ONNX
 ```
 
 Build:
 
 ```bash
-docker build -f docker/Dockerfile -t modelopt-yolo-ptq .
+docker build -f docker/Dockerfile -t modelopt-onnx-ptq .
 ```
 
 Run — mount only **`models/`**, **`data/`**, and **`artifacts/`** on the host (the package is already in the image):
 
 ```bash
-export DATA_ROOT="$HOME/model-opt-yolo"
+export DATA_ROOT="$HOME/modelopt-onnx-ptq"
 mkdir -p "$DATA_ROOT/models" "$DATA_ROOT/data" "$DATA_ROOT/artifacts"
 
 docker run --gpus all --rm -it \
-  -w /workspace/model-opt-yolo \
-  -v "$DATA_ROOT/models:/workspace/model-opt-yolo/models" \
-  -v "$DATA_ROOT/data:/workspace/model-opt-yolo/data" \
-  -v "$DATA_ROOT/artifacts:/workspace/model-opt-yolo/artifacts" \
-  modelopt-yolo-ptq
+  -w /workspace/modelopt-onnx-ptq \
+  -v "$DATA_ROOT/models:/workspace/modelopt-onnx-ptq/models" \
+  -v "$DATA_ROOT/data:/workspace/modelopt-onnx-ptq/data" \
+  -v "$DATA_ROOT/artifacts:/workspace/modelopt-onnx-ptq/artifacts" \
+  modelopt-onnx-ptq
 ```
 
 The image includes:
 
 - **NGC** [`nvcr.io/nvidia/tensorrt:26.02-py3`](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/tensorrt)
 - **`nvidia-modelopt[onnx]`** pinned from **NVIDIA PyPI** (default `0.43.0rc4`, overridable with `MODELOPT_VERSION` at build time; index `NVIDIA_PYPI_EXTRA_INDEX`, default `https://pypi.nvidia.com`)
-- **`model-opt-yolo`** via `pip install /workspace/model-opt-yolo`
+- **`modelopt-onnx-ptq`** via `pip install /workspace/modelopt-onnx-ptq`
 - **`onnxruntime-gpu`** reinstalled from the **CUDA 13** nightly index (PyPI ORT targets CUDA 12; the image ships CUDA 13)
 
 See [Docker reference](docker-reference.md) for build arguments.
@@ -84,19 +84,19 @@ See [Docker reference](docker-reference.md) for build arguments.
 Use this when you want to **change the source code** and run commands in the **same** TensorRT image, with your **Git repository** on the host visible inside the container.
 
 1. Build the image (see above).
-2. From the **root of your clone**, start a shell with the repo mounted over `/workspace/model-opt-yolo`:
+2. From the **root of your clone**, start a shell with the repo mounted over `/workspace/modelopt-onnx-ptq`:
 
 ```bash
 docker run --gpus all --rm -it \
-  -w /workspace/model-opt-yolo \
-  -v "$(pwd)":/workspace/model-opt-yolo \
-  modelopt-yolo-ptq
+  -w /workspace/modelopt-onnx-ptq \
+  -v "$(pwd)":/workspace/modelopt-onnx-ptq \
+  modelopt-onnx-ptq
 ```
 
-Edits under `model_opt_yolo/` on the host apply inside the container immediately. After changing **`pyproject.toml`** or dependencies, reinstall with:
+Edits under `modelopt_onnx_ptq/` on the host apply inside the container immediately. After changing **`pyproject.toml`** or dependencies, reinstall with:
 
 ```bash
-pip install -e /workspace/model-opt-yolo
+pip install -e /workspace/modelopt-onnx-ptq
 ```
 
 You can add the same **`models/`**, **`data/`**, and **`artifacts/`** bind mounts as in the default run if you keep those folders **outside** the clone — see [Docker reference — Data persistence](docker-reference.md).

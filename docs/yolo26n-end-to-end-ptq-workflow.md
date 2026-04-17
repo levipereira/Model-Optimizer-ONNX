@@ -1,6 +1,6 @@
 # YOLO26n — end-to-end PTQ workflow (reference)
 
-This document describes a **recommended workflow** for **NVIDIA Model Optimizer** with **model-opt-yolo**: run a full quantization grid, inspect the TensorRT plan, define a **YAML profile** (partial quantization), then re-run the same grid (`--quant-matrix all`) to compare **mAP** and **latency**.
+This document describes a **recommended workflow** for **NVIDIA Model Optimizer** with **modelopt-onnx-ptq**: run a full quantization grid, inspect the TensorRT plan, define a **YAML profile** (partial quantization), then re-run the same grid (`--quant-matrix all`) to compare **mAP** and **latency**.
 
 The example ONNX is **`models/yolo26n_no_nms_e2e.onnx`** — an end-to-end detector **without embedded NMS** (NMS handled outside the graph).
 
@@ -13,7 +13,7 @@ The example ONNX is **`models/yolo26n_no_nms_e2e.onnx`** — an end-to-end detec
 Before calibration and quantization, you need an ONNX file that matches how you will deploy and evaluate:
 
 - **Ultralytics YOLO (recommended source)** — Export from the **official Ultralytics** package / CLI so tensor names, strides, and preprocessing stay consistent with Ultralytics tooling. See the Ultralytics export documentation: [Ultralytics — Export](https://docs.ultralytics.com/modes/export/).
-- **DeepStream-Yolo alignment** — If you target [DeepStream-Yolo](https://github.com/marcoslucianops/DeepStream-Yolo), use its YOLO26 primary config as a reference for ONNX naming, batching, and inference settings (for example [`config_infer_primary_yolo26.txt`](https://github.com/marcoslucianops/DeepStream-Yolo/blob/master/config_infer_primary_yolo26.txt)): `onnx-file`, `net-scale-factor`, `model-color-format`, `num-detected-classes`, and custom parse settings. Export or adapt your ONNX so it matches the same input layout and output tensor layout you will use in DeepStream and in **model-opt-yolo** (e.g. `--output-format deepstream_yolo` for a pre-NMS `[B, N, 6]` tensor).
+- **DeepStream-Yolo alignment** — If you target [DeepStream-Yolo](https://github.com/marcoslucianops/DeepStream-Yolo), use its YOLO26 primary config as a reference for ONNX naming, batching, and inference settings (for example [`config_infer_primary_yolo26.txt`](https://github.com/marcoslucianops/DeepStream-Yolo/blob/master/config_infer_primary_yolo26.txt)): `onnx-file`, `net-scale-factor`, `model-color-format`, `num-detected-classes`, and custom parse settings. Export or adapt your ONNX so it matches the same input layout and output tensor layout you will use in DeepStream and in **modelopt-onnx-ptq** (e.g. `--output-format deepstream_yolo` for a pre-NMS `[B, N, 6]` tensor).
 
 Match **input name**, **image size**, and **NMS placement** (in-graph vs post-processing) to what you pass into **`pipeline-e2e`** (`--input-name`, `--output-format`, etc.).
 
@@ -22,7 +22,7 @@ Match **input name**, **image size**, and **NMS placement** (in-graph vs post-pr
 Calibration and COCO eval expect images and annotations under the usual tree (see [Workflow](workflow.md)):
 
 ```bash
-model-opt-yolo download-coco --output-dir data/coco
+modelopt-onnx-ptq download-coco --output-dir data/coco
 ```
 
 ### 3. Place the ONNX under `models/`
@@ -60,7 +60,7 @@ flowchart LR
 Run **`pipeline-e2e`** with **`--quant-matrix all`** (six combinations: int8/fp8/int4 × calibration methods) **without** `--quantize-profile`. Example:
 
 ```bash
-model-opt-yolo pipeline-e2e \
+modelopt-onnx-ptq pipeline-e2e \
   --onnx models/yolo26n_no_nms_e2e.onnx \
   --calibration-data-size 1000 \
   --input-name input \
@@ -81,7 +81,7 @@ Use this as a **baseline** to see which mode/method behaves best **before** rest
 
 ### Phase 2 — Profiling and analysis (`trex-analyze`)
 
-Run **`model-opt-yolo trex-analyze`** on the quantized ONNX files (and optionally **`--compare`** vs FP16) to inspect **slow layers**, **Reformat**, broken fusions, etc.
+Run **`modelopt-onnx-ptq trex-analyze`** on the quantized ONNX files (and optionally **`--compare`** vs FP16) to inspect **slow layers**, **Reformat**, broken fusions, etc.
 
 **How to interpret results**
 
@@ -92,7 +92,7 @@ Run **`model-opt-yolo trex-analyze`** on the quantized ONNX files (and optionall
 
 Define rules in YAML (e.g. **backbone only** with `include_nodes`). Packaged example:
 
-- [`model_opt_yolo/profiles/yolo26n_no_nms_e2e_backbone.yaml`](../model_opt_yolo/profiles/yolo26n_no_nms_e2e_backbone.yaml) — Conv whitelist for the backbone (`node_conv2d` … `_39`); neck/head stay at higher precision (with `--high-precision-dtype fp16` in `quantize`, matching the current CLI default).
+- [`modelopt_onnx_ptq/profiles/yolo26n_no_nms_e2e_backbone.yaml`](../modelopt_onnx_ptq/profiles/yolo26n_no_nms_e2e_backbone.yaml) — Conv whitelist for the backbone (`node_conv2d` … `_39`); neck/head stay at higher precision (with `--high-precision-dtype fp16` in `quantize`, matching the current CLI default).
 
 Copy and adapt for **your** ONNX if node names differ.
 
@@ -104,10 +104,10 @@ Run **`pipeline-e2e`** again with the **same** `--quant-matrix all` and **`--qua
 
 ## Example command — grid **with** backbone profile (reference session)
 
-This command produced session **`yolo26n_prof_backbone`** (report and charts below), **after** defining the profile [`yolo26n_no_nms_e2e_backbone.yaml`](../model_opt_yolo/profiles/yolo26n_no_nms_e2e_backbone.yaml):
+This command produced session **`yolo26n_prof_backbone`** (report and charts below), **after** defining the profile [`yolo26n_no_nms_e2e_backbone.yaml`](../modelopt_onnx_ptq/profiles/yolo26n_no_nms_e2e_backbone.yaml):
 
 ```bash
-model-opt-yolo pipeline-e2e \
+modelopt-onnx-ptq pipeline-e2e \
   --onnx models/yolo26n_no_nms_e2e.onnx \
   --calibration-data-size 1000 \
   --input-name input \
@@ -155,8 +155,8 @@ Summary numbers from that report:
 
 - [Workflow](workflow.md) — `pipeline-e2e`, `--quant-matrix`
 - [PTQ performance workflow](quantization-performance-workflow.md) — profiles, `trex-analyze`, hpfp16
-- [CLI reference — pipeline-e2e](cli-reference.md#model-opt-yolo-pipeline-e2e)
-- [CLI reference — trex-analyze](cli-reference.md#model-opt-yolo-trex-analyze)
+- [CLI reference — pipeline-e2e](cli-reference.md#modelopt-onnx-ptq-pipeline-e2e)
+- [CLI reference — trex-analyze](cli-reference.md#modelopt-onnx-ptq-trex-analyze)
 - Benchmark skill: [`skills/ptq-trt-performance/SKILL.md`](../skills/ptq-trt-performance/SKILL.md)
 
 ---
@@ -170,4 +170,4 @@ You can:
 - pick **int8 / fp8 / int4** and calibrators from `report-runs` output;
 - keep **neck/head in higher precision** and int8 on the backbone, or grow the whitelist gradually **if** mAP and latency allow.
 
-This gives a **concrete example** of **Model Optimizer + TensorRT + COCO eval** end to end with **model-opt-yolo**.
+This gives a **concrete example** of **Model Optimizer + TensorRT + COCO eval** end to end with **modelopt-onnx-ptq**.

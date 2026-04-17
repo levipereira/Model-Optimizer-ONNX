@@ -1,19 +1,19 @@
-# Model-Optimizer-YOLO
+# Model-Optimizer-ONNX
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![TensorRT](https://img.shields.io/badge/NGC%20TensorRT-26.02--py3-76B900?logo=nvidia&logoColor=white)](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/tensorrt)
 [![Model Optimizer](https://img.shields.io/badge/NVIDIA%20Model%20Optimizer-GitHub%20%7C%20onnx-76B900?logo=nvidia&logoColor=white)](https://github.com/NVIDIA/Model-Optimizer)
 [![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime%20GPU-CUDA%2013%20nightly-005CED?logo=onnx&logoColor=white)](https://onnxruntime.ai/)
-[![model-opt-yolo](https://img.shields.io/badge/model--opt--yolo-v0.1.0-3775A9?logo=pypi&logoColor=white)](pyproject.toml)
-[![Context7](https://img.shields.io/badge/Context7-Docs-blue?logo=data:image/svg%2bxml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSIxMCIgZmlsbD0id2hpdGUiLz48dGV4dCB4PSI3IiB5PSIxNyIgZm9udC1zaXplPSIxNCIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtd2VpZ2h0PSJib2xkIiBmaWxsPSIjMjU2M0VCIj5DPC90ZXh0Pjwvc3ZnPg==)](https://context7.com/levipereira/model-optimizer-yolo)
-[![mAP, latency & PTQ settings](https://img.shields.io/badge/mAP%2C%20latency%20%26%20PTQ%20settings%20(ref)-in%20progress-F59E0B)](https://github.com/levipereira/Model-Optimizer-YOLO/discussions)
+[![modelopt-onnx-ptq](https://img.shields.io/badge/modelopt--onnx--ptq-v0.1.0-3775A9?logo=pypi&logoColor=white)](pyproject.toml)
+[![Context7](https://img.shields.io/badge/Context7-Docs-blue?logo=data:image/svg%2bxml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSIxMCIgZmlsbD0id2hpdGUiLz48dGV4dCB4PSI3IiB5PSIxNyIgZm9udC1zaXplPSIxNCIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtd2VpZ2h0PSJib2xkIiBmaWxsPSIjMjU2M0VCIj5DPC90ZXh0Pjwvc3ZnPg==)](https://context7.com/levipereira/model-optimizer-onnx)
+[![mAP, latency & PTQ settings](https://img.shields.io/badge/mAP%2C%20latency%20%26%20PTQ%20settings%20(ref)-in%20progress-F59E0B)](https://github.com/levipereira/Model-Optimizer-ONNX/discussions)
 
-**ONNX PTQ** and **TensorRT** helpers for **YOLO-style** detectors — [NVIDIA Model Optimizer](https://github.com/NVIDIA/Model-Optimizer), COCO calibration, optional **`quantize --autotune`** ([workflow](docs/workflow.md)).
+**ONNX PTQ** and **TensorRT** helpers for **exported ONNX** object-detection models — [NVIDIA Model Optimizer](https://github.com/NVIDIA/Model-Optimizer), COCO calibration, optional **`quantize --autotune`** ([workflow](docs/workflow.md)).
 
 | | |
 |--|--|
-| **CLI** | `model-opt-yolo` |
+| **CLI** | `modelopt-onnx-ptq` |
 | **Docs** | [`docs/README.md`](docs/README.md) |
 | **AI coding agents** | [`skills/README.md`](skills/README.md) — Agent Skills, conventions, PTQ/TRT workflows for assistants |
 
@@ -37,9 +37,9 @@
 
 ## Community
 
-**Do not open [Issues](https://github.com/levipereira/Model-Optimizer-YOLO/issues) for questions or for posting results and findings** (benchmarks, mAP, parameter setups, “what worked for my model,” and similar). Use **[GitHub Discussions](https://github.com/levipereira/Model-Optimizer-YOLO/discussions)** for that.
+**Do not open [Issues](https://github.com/levipereira/Model-Optimizer-ONNX/issues) for questions or for posting results and findings** (benchmarks, mAP, parameter setups, “what worked for my model,” and similar). Use **[GitHub Discussions](https://github.com/levipereira/Model-Optimizer-ONNX/discussions)** for that.
 
-Please read the pinned **[welcome announcement](https://github.com/levipereira/Model-Optimizer-YOLO/discussions/1)** — it describes how we use Discussions (questions, results, recipes per model, ideas for the project) and that **[Issues](https://github.com/levipereira/Model-Optimizer-YOLO/issues) are reserved for confirmed bugs** with clear, reproducible steps (versions, commands, minimal inputs).
+Please read the pinned **[welcome announcement](https://github.com/levipereira/Model-Optimizer-ONNX/discussions/1)** — it describes how we use Discussions (questions, results, recipes per model, ideas for the project) and that **[Issues](https://github.com/levipereira/Model-Optimizer-ONNX/issues) are reserved for confirmed bugs** with clear, reproducible steps (versions, commands, minimal inputs).
 
 **Status (maintainer):** Published **reference results** are **not** posted yet — that work is **still in progress**. Those will include **COCO mAP** (accuracy) and **latency** (timing / throughput), plus **recommended PTQ settings** — quantization **precision** (e.g. int8, int4, fp8) and **calibration / quantizer methods** (e.g. entropy), as used in **`quantize`**. The Discussions category for results and recipes is open for the community; official tables and maintainer write-ups will be added when ready.
 
@@ -47,9 +47,9 @@ Please read the pinned **[welcome announcement](https://github.com/levipereira/M
 
 ## Pipeline
 
-**Training and ONNX export are not part of this repo.** Produce checkpoints and **export to ONNX in your original training or deployment framework** (PyTorch, Ultralytics, DeepStream-Yolo exporters, etc.). Commands that load weights (e.g. `.pt`) and write `.onnx` — including flags for dynamic axes, opset, graph simplification, and output tensor layout — are **external** to **Model-Optimizer-YOLO**: they are **not** implemented here and **not** run by `model-opt-yolo`. This project assumes you already have **`models/*.onnx`** that match how you will calibrate and evaluate. The diagram below shows **only the logical flow** so names and preprocessing stay consistent end-to-end.
+**Training and ONNX export are not part of this repo.** Produce checkpoints and **export to ONNX in your original training or deployment framework** (PyTorch, Ultralytics, DeepStream-Yolo exporters, etc.). Commands that load weights (e.g. `.pt`) and write `.onnx` — including flags for dynamic axes, opset, graph simplification, and output tensor layout — are **external** to **Model-Optimizer-ONNX**: they are **not** implemented here and **not** run by `modelopt-onnx-ptq`. This project assumes you already have **`models/*.onnx`** that match how you will calibrate and evaluate. The diagram below shows **only the logical flow** so names and preprocessing stay consistent end-to-end.
 
-**Fastest path:** **`model-opt-yolo pipeline-e2e --onnx models/…onnx`** — runs **calib**, a **TensorRT FP16 baseline** on the original ONNX (for side-by-side comparison with quantized engines in the report), then each **quantize → build-trt → eval-trt → trt-bench** combo, and **`report-runs`** (session logs under `artifacts/pipeline_e2e/sessions/…`). See [workflow](docs/workflow.md).
+**Fastest path:** **`modelopt-onnx-ptq pipeline-e2e --onnx models/…onnx`** — runs **calib**, a **TensorRT FP16 baseline** on the original ONNX (for side-by-side comparison with quantized engines in the report), then each **quantize → build-trt → eval-trt → trt-bench** combo, and **`report-runs`** (session logs under `artifacts/pipeline_e2e/sessions/…`). See [workflow](docs/workflow.md).
 
 **Manual PTQ path:** **calib** → **quantize** → **build-trt** → **eval-trt** → **trt-bench** (optional **`--autotune`** on `quantize`). You can **compare FP16 vs quantized** by also running **`build-trt --mode fp16`** on the original ONNX and then **eval-trt** / **trt-bench** on that engine (see [workflow](docs/workflow.md)). For a **report**, use **`report-runs`**, or set **`export SESSION_ID=…`** once (or pass the same **`--session-id`** on each command) so **`build-trt`**, **`eval-trt`**, **`trt-bench`**, and **`report-runs`** use one session directory.
 
@@ -60,13 +60,13 @@ flowchart TD
   end
   B --> C[models/*.onnx]
   C --> H[download-coco]
-  H --> I[model-opt-yolo calib]
+  H --> I[modelopt-onnx-ptq calib]
   I --> J[artifacts/calibration/*.npy]
-  J --> Q["model-opt-yolo quantize<br/>(--autotune quick|default|extensive — optional)"]
+  J --> Q["modelopt-onnx-ptq quantize<br/>(--autotune quick|default|extensive — optional)"]
   Q --> L[artifacts/quantized/*.quant.onnx]
-  L --> M[model-opt-yolo build-trt]
+  L --> M[modelopt-onnx-ptq build-trt]
   M --> N[artifacts/trt_engine/*.engine]
-  N --> O[model-opt-yolo eval-trt<br/>COCO mAP]
+  N --> O[modelopt-onnx-ptq eval-trt<br/>COCO mAP]
 ```
 
 *Details, `pipeline-e2e`, and report: [docs/workflow.md](docs/workflow.md)*
@@ -78,19 +78,19 @@ flowchart TD
 Run **inside the container** (or locally after `pip install -e .`):
 
 - **One command (calib → FP16 baseline → PTQ combos → report):**  
-  `model-opt-yolo pipeline-e2e --onnx models/your.onnx` — add `--img-size`, `--input-name`, `--output-format` as needed; use **`--no-fp16-baseline`** only if you do not want the FP16 comparison row ([workflow](docs/workflow.md)).
+  `modelopt-onnx-ptq pipeline-e2e --onnx models/your.onnx` — add `--img-size`, `--input-name`, `--output-format` as needed; use **`--no-fp16-baseline`** only if you do not want the FP16 comparison row ([workflow](docs/workflow.md)).
 
 **Or step by step:**
 
 1. **ONNX under `models/`** — already exported from your stack (see scope above); match letterbox, input name, and outputs to what you will use in production.
-2. `model-opt-yolo download-coco --output-dir data/coco`
-3. `model-opt-yolo calib --images_dir data/coco/val2017 --calibration_data_size 500 --img_size 640`
-4. `model-opt-yolo quantize --calibration_data artifacts/calibration/…npy --onnx_path models/your.onnx` (optional: `--autotune default`)
-5. **Optional FP16 reference:** `model-opt-yolo build-trt --onnx models/your.onnx --mode fp16` (default output `artifacts/trt_engine/<stem>.fp16.b<batch>_i<img>.engine`) then **`eval-trt`** / **`trt-bench`** on that engine (use **`SESSION_ID`** or **`--session-id`** on each command for a unified report).
-6. `model-opt-yolo build-trt --onnx artifacts/quantized/your…quant.onnx --img-size 640 --batch 1` → `artifacts/trt_engine/<stem>.b<batch>_i<img>.engine` (default `--mode strongly-typed`; see [docs](docs/cli-reference.md#model-opt-yolo-build-trt))
-7. `model-opt-yolo eval-trt --output-format onnx_trt --engine … --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json` (pick `ultralytics` / `deepstream_yolo` if needed — table below)
-8. `model-opt-yolo trt-bench --engine …` for throughput logs used by **`report-runs`**
-9. `model-opt-yolo report-runs` (with **`SESSION_ID`** set) **or** `--session-id` / `--trt-logs-dir` / `--eval-logs-dir` as needed
+2. `modelopt-onnx-ptq download-coco --output-dir data/coco`
+3. `modelopt-onnx-ptq calib --images_dir data/coco/val2017 --calibration_data_size 500 --img_size 640`
+4. `modelopt-onnx-ptq quantize --calibration_data artifacts/calibration/…npy --onnx_path models/your.onnx` (optional: `--autotune default`)
+5. **Optional FP16 reference:** `modelopt-onnx-ptq build-trt --onnx models/your.onnx --mode fp16` (default output `artifacts/trt_engine/<stem>.fp16.b<batch>_i<img>.engine`) then **`eval-trt`** / **`trt-bench`** on that engine (use **`SESSION_ID`** or **`--session-id`** on each command for a unified report).
+6. `modelopt-onnx-ptq build-trt --onnx artifacts/quantized/your…quant.onnx --img-size 640 --batch 1` → `artifacts/trt_engine/<stem>.b<batch>_i<img>.engine` (default `--mode strongly-typed`; see [docs](docs/cli-reference.md#modelopt-onnx-ptq-build-trt))
+7. `modelopt-onnx-ptq eval-trt --output-format onnx_trt --engine … --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json` (pick `ultralytics` / `deepstream_yolo` if needed — table below)
+8. `modelopt-onnx-ptq trt-bench --engine …` for throughput logs used by **`report-runs`**
+9. `modelopt-onnx-ptq report-runs` (with **`SESSION_ID`** set) **or** `--session-id` / `--trt-logs-dir` / `--eval-logs-dir` as needed
 
 CLI details: [docs/cli-reference.md](docs/cli-reference.md) · optional docs site: `pip install -e ".[docs]" && mkdocs serve` ([`mkdocs.yml`](mkdocs.yml))
 
@@ -100,7 +100,7 @@ CLI details: [docs/cli-reference.md](docs/cli-reference.md) · optional docs sit
 
 The **PyTorch → ONNX** step defines tensor names, ranks, and post-processing semantics. **`--output-format`** in `eval-trt` must match that export (and the TensorRT build derived from it); the `.engine` layout alone is not enough if the underlying ONNX was produced differently. Flows discussed here assume ONNX exported with **`--dynamic`**, **`--simplify`**, and **`--opset` 18 or newer** (or equivalent flags in your exporter) so shapes and graphs stay consistent through PTQ and `trtexec`.
 
-`model-opt-yolo eval-trt` scores a **TensorRT `.engine`** on COCO by decoding **how detections leave the network** for your stack. Pass **`--output-format`** accordingly. Full flags and shapes: [`docs/cli-reference.md`](docs/cli-reference.md).
+`modelopt-onnx-ptq eval-trt` scores a **TensorRT `.engine`** on COCO by decoding **how detections leave the network** for your stack. Pass **`--output-format`** accordingly. Full flags and shapes: [`docs/cli-reference.md`](docs/cli-reference.md).
 
 | `--output-format` | Typical source | Role |
 |-------------------|----------------|------|
@@ -133,7 +133,7 @@ This repository **supports AI coding agents**—IDE assistants, agent-style CLI 
 
 | Path | Role |
 |------|------|
-| [`skills/model-opt-yolo-dev/SKILL.md`](skills/model-opt-yolo-dev/SKILL.md) | Umbrella: repo layout, maintainer conventions (Part A), pointers to domain skills. |
+| [`skills/modelopt-onnx-ptq-dev/SKILL.md`](skills/modelopt-onnx-ptq-dev/SKILL.md) | Umbrella: repo layout, maintainer conventions (Part A), pointers to domain skills. |
 | [`skills/onnx-ptq/SKILL.md`](skills/onnx-ptq/SKILL.md) + [`reference.md`](skills/onnx-ptq/reference.md) | PTQ workflow, mode/method tables, `quantize()` / modelopt CLI reference. |
 | [`skills/ptq-trt-performance/SKILL.md`](skills/ptq-trt-performance/SKILL.md) | Benchmarking (`pipeline-e2e`, `report-runs`), backbone/neck/head Conv whitelists. |
 | [`skills/modelopt-troubleshooting/SKILL.md`](skills/modelopt-troubleshooting/SKILL.md) | CUDA/ORT/TRT/modelopt diagnostics and common failures. |
@@ -159,16 +159,16 @@ Verify the driver with `nvidia-smi` on the host. After installing the toolkit, f
 
 ### Run with Docker (default)
 
-The **`model-opt-yolo`** package is **installed inside the image** at build time. You do **not** need to mount the Git repository to run — only bind-mount three folders on the host so ONNX, datasets, and outputs persist when the container stops.
+The **`modelopt-onnx-ptq`** package is **installed inside the image** at build time. You do **not** need to mount the Git repository to run — only bind-mount three folders on the host so ONNX, datasets, and outputs persist when the container stops.
 
 #### 1. Build the image (needs the Dockerfile)
 
 Clone once (or copy the `docker/` context elsewhere) and build:
 
 ```bash
-git clone https://github.com/levipereira/Model-Optimizer-YOLO.git
-cd Model-Optimizer-YOLO
-docker build -f docker/Dockerfile -t modelopt-yolo-ptq .
+git clone https://github.com/levipereira/Model-Optimizer-ONNX.git
+cd Model-Optimizer-ONNX
+docker build -f docker/Dockerfile -t modelopt-onnx-ptq .
 ```
 
 #### 2. Run with `models/`, `data/`, and `artifacts/` on the host
@@ -176,26 +176,26 @@ docker build -f docker/Dockerfile -t modelopt-yolo-ptq .
 Pick a root directory on the host (any path you like) and create the three subfolders:
 
 ```bash
-export DATA_ROOT="$HOME/model-opt-yolo"
+export DATA_ROOT="$HOME/modelopt-onnx-ptq"
 mkdir -p "$DATA_ROOT/models" "$DATA_ROOT/data" "$DATA_ROOT/artifacts"
 
 docker run --gpus all --rm -it \
-  -w /workspace/model-opt-yolo \
-  -v "$DATA_ROOT/models:/workspace/model-opt-yolo/models" \
-  -v "$DATA_ROOT/data:/workspace/model-opt-yolo/data" \
-  -v "$DATA_ROOT/artifacts:/workspace/model-opt-yolo/artifacts" \
-  modelopt-yolo-ptq
+  -w /workspace/modelopt-onnx-ptq \
+  -v "$DATA_ROOT/models:/workspace/modelopt-onnx-ptq/models" \
+  -v "$DATA_ROOT/data:/workspace/modelopt-onnx-ptq/data" \
+  -v "$DATA_ROOT/artifacts:/workspace/modelopt-onnx-ptq/artifacts" \
+  modelopt-onnx-ptq
 ```
 
-Inside the container, the working directory is **`/workspace/model-opt-yolo`**. Use the same **relative** paths as in the docs: `models/...`, `data/coco/...`, `artifacts/...` — they map to `$DATA_ROOT` on the host.
+Inside the container, the working directory is **`/workspace/modelopt-onnx-ptq`**. Use the same **relative** paths as in the docs: `models/...`, `data/coco/...`, `artifacts/...` — they map to `$DATA_ROOT` on the host.
 
 #### Host ↔ container mapping
 
 | Host | Container |
 |------|-----------|
-| `$DATA_ROOT/models` | `/workspace/model-opt-yolo/models` |
-| `$DATA_ROOT/data` | `/workspace/model-opt-yolo/data` |
-| `$DATA_ROOT/artifacts` | `/workspace/model-opt-yolo/artifacts` |
+| `$DATA_ROOT/models` | `/workspace/modelopt-onnx-ptq/models` |
+| `$DATA_ROOT/data` | `/workspace/modelopt-onnx-ptq/data` |
+| `$DATA_ROOT/artifacts` | `/workspace/modelopt-onnx-ptq/artifacts` |
 
 Change `DATA_ROOT` to another disk or folder if you want.
 
@@ -203,7 +203,7 @@ See [docs/docker-reference.md](docs/docker-reference.md) for build args and pers
 
 #### TensorRT Engine Explorer (TREx) — model profiling (optional)
 
-The Docker image clones the [NVIDIA TensorRT](https://github.com/NVIDIA/TensorRT) repository at branch **`release/10.15`** into **`/workspace/TREx`** and installs **[TREx](https://github.com/NVIDIA/TensorRT/tree/release/10.15/tools/experimental/trt-engine-explorer)** in a **separate virtualenv** (`source install.sh --venv --full` → **`env_trex`**) so TREx’s **pandas** pins do not collide with **`model-opt-yolo`**, **CuPy**, or **numpy** in the main image Python. Use this **only** for **TensorRT engine profiling** (layer graphs, `trtexec` JSON, notebooks). It is **not** part of the PTQ pipeline.
+The Docker image clones the [NVIDIA TensorRT](https://github.com/NVIDIA/TensorRT) repository at branch **`release/10.15`** into **`/workspace/TREx`** and installs **[TREx](https://github.com/NVIDIA/TensorRT/tree/release/10.15/tools/experimental/trt-engine-explorer)** in a **separate virtualenv** (`source install.sh --venv --full` → **`env_trex`**) so TREx’s **pandas** pins do not collide with **`modelopt-onnx-ptq`**, **CuPy**, or **numpy** in the main image Python. Use this **only** for **TensorRT engine profiling** (layer graphs, `trtexec` JSON, notebooks). It is **not** part of the PTQ pipeline.
 
 ```bash
 source /workspace/TREx/tools/experimental/trt-engine-explorer/env_trex/bin/activate
@@ -217,17 +217,17 @@ The **10.15** tree is **source** for TREx; the TensorRT runtime matches the NGC 
 
 #### Development (edit mode in Docker)
 
-To **develop** using the image: build it, then **bind-mount your Git clone** into `/workspace/model-opt-yolo` so you edit the repo on the host and run inside the container. Step-by-step: **[Edit mode with Docker (developers)](docs/installation.md#edit-mode-with-docker-developers)** in [Installation](docs/installation.md).
+To **develop** using the image: build it, then **bind-mount your Git clone** into `/workspace/modelopt-onnx-ptq` so you edit the repo on the host and run inside the container. Step-by-step: **[Edit mode with Docker (developers)](docs/installation.md#edit-mode-with-docker-developers)** in [Installation](docs/installation.md).
 
 ### Local Installation (optional)
 
 If you want to change this project and run **outside** Docker, clone the repo, then install in editable mode from the repository root:
 
 ```bash
-git clone https://github.com/levipereira/Model-Optimizer-YOLO.git
-cd Model-Optimizer-YOLO
+git clone https://github.com/levipereira/Model-Optimizer-ONNX.git
+cd Model-Optimizer-ONNX
 pip install -e .
-model-opt-yolo --help
+modelopt-onnx-ptq --help
 ```
 
 You still need a matching CUDA / TensorRT / ONNX Runtime stack on the host; the Docker image is the supported baseline.

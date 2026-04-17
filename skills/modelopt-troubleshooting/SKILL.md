@@ -106,7 +106,7 @@ pip install -U "nvidia-modelopt[onnx]"
 
 **Symptom:** Logs like `IConcatenationLayer Concat: axis 2 dimensions must be equal`, `Failed to build TensorRT engine`, `latency=inf`, `Exported INT8 model with 0 Q/DQ pairs`.
 
-**Context:** Autotune is triggered via `model-opt-yolo quantize --autotune <preset>` (or `--autotune` on `pipeline-e2e`). It only applies to **int8** and **fp8** -- int4 ignores the flag.
+**Context:** Autotune is triggered via `modelopt-onnx-ptq quantize --autotune <preset>` (or `--autotune` on `pipeline-e2e`). It only applies to **int8** and **fp8** -- int4 ignores the flag.
 
 **Common causes:**
 
@@ -122,7 +122,7 @@ pip install -U "nvidia-modelopt[onnx]"
    If the full model fails too, fix the export; if only region exports fail, treat as autotune limitation and quantize without `--autotune`.
 
 3. **Workaround via passthrough:** Pass TRT shape hints through the quantize passthrough args:
-   `model-opt-yolo quantize ... --autotune default -- --autotune_use_trtexec --autotune_trtexec_args '--minShapes=input:1x3x640x640 --optShapes=input:1x3x640x640 --maxShapes=input:1x3x640x640'`
+   `modelopt-onnx-ptq quantize ... --autotune default -- --autotune_use_trtexec --autotune_trtexec_args '--minShapes=input:1x3x640x640 --optShapes=input:1x3x640x640 --maxShapes=input:1x3x640x640'`
    (adjust tensor name `input` and size to match your graph.)
 
 ## Issue: trtexec parse error on `QuantizeLinear` — `convertAxis` / `nbDims (0)` / `axis` 1
@@ -139,7 +139,7 @@ Failed to parse onnx file
 
 **Try (in order):**
 
-1. Re-quantize with **`--simplify`** passthrough: `model-opt-yolo quantize ... -- --simplify`
+1. Re-quantize with **`--simplify`** passthrough: `modelopt-onnx-ptq quantize ... -- --simplify`
 2. Confirm **fixed** input shape on the FP ONNX (no batch `-1` on spatial dims if your stack requires static shapes for TRT).
 3. **`build-trt --mode best`** as an experiment (not equivalent to strongly-typed PTQ; use only to see if import path changes).
 4. Compare **TensorRT** / **modelopt** versions with a known-good run; upgrade TRT if on a very new architecture (e.g. Blackwell).

@@ -16,9 +16,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from model_opt_yolo.io_checks import validate_readable_file
-from model_opt_yolo.logutil import add_logging_arguments, setup_logging
-from model_opt_yolo.session_paths import default_trt_bench_session_log, effective_session_id, run_timestamp
+from modelopt_onnx_ptq.io_checks import validate_readable_file
+from modelopt_onnx_ptq.logutil import add_logging_arguments, setup_logging
+from modelopt_onnx_ptq.session_paths import default_trt_bench_session_log, effective_session_id, run_timestamp
 
 _TRT_BEST_PRACTICES = (
     "https://docs.nvidia.com/deeplearning/tensorrt/latest/performance/best-practices.html"

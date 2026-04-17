@@ -1,0 +1,4 @@
+# Example: keep MatMul in higher precision (exclude from int8 quantization scope).
+modelopt:
+  exclude_op_types:
+    - MatMul

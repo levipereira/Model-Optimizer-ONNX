@@ -1,6 +1,6 @@
-# Model-Optimizer-YOLO — Documentation
+# Model-Optimizer-ONNX — Documentation
 
-**model-opt-yolo** is a command-line toolkit for **ONNX post-training quantization (PTQ)** of YOLO-style object detectors, built around [NVIDIA Model Optimizer](https://github.com/NVIDIA/Model-Optimizer), **TensorRT**, and **ONNX Runtime** — with COCO-based calibration and optional Q/DQ autotune.
+**modelopt-onnx-ptq** is a command-line toolkit for **ONNX post-training quantization (PTQ)** of object-detection models, built around [NVIDIA Model Optimizer](https://github.com/NVIDIA/Model-Optimizer), **TensorRT**, and **ONNX Runtime** — with COCO-based calibration and optional Q/DQ autotune.
 
 ---
 
@@ -12,7 +12,7 @@
 | [Workflow](workflow.md) | Pipeline steps, **autotune** (`quantize --autotune`), **`pipeline-e2e`** / `--quant-matrix` |
 | [PTQ performance workflow](quantization-performance-workflow.md) | Iterative loop + **`pipeline-e2e` / `--quant-matrix`** to compare modes; **[`skills/ptq-trt-performance/SKILL.md`](../skills/ptq-trt-performance/SKILL.md)** for the measurement checklist |
 | [YOLO26n end-to-end PTQ workflow](yolo26n-end-to-end-ptq-workflow.md) | Prerequisites (Ultralytics or DeepStream-Yolo export, `download-coco`, ONNX in `models/`); then baseline **`pipeline-e2e`** → **`trex-analyze`** → YAML profile → **`pipeline-e2e` + `--quantize-profile`**; charts + session report link |
-| [CLI reference](cli-reference.md) | `model-opt-yolo` subcommands (**`eval-trt`** **`--output-format`**; **`trex-analyze`** — at most one of **`--graph`** \| **`--report`** \| **`--compare`**) |
+| [CLI reference](cli-reference.md) | `modelopt-onnx-ptq` subcommands (**`eval-trt`** **`--output-format`**; **`trex-analyze`** — at most one of **`--graph`** \| **`--report`** \| **`--compare`**) |
 | [Artifacts & logging](artifacts-and-logging.md) | `artifacts/` layout, session naming, log files |
 | [Docker reference](docker-reference.md) | Base image, build args, environment variables, optional **TREx** (`/workspace/TREx`, engine profiling) |
 | [Troubleshooting](troubleshooting.md) | Common errors (CUDA/ORT, TRT, dynamic shapes) |

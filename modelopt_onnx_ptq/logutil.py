@@ -1,8 +1,10 @@
-"""Shared logging setup for Model Optimizer YOLO tools.
+"""Shared logging setup for Model Optimizer ONNX tools.
 
 Environment variables (optional):
 
-- ``MODELOPT_YOLO_LOGLEVEL`` or ``LOGLEVEL``: ``DEBUG``, ``INFO``, ``WARNING``, ``ERROR`` (default: INFO).
+- ``MODELOPT_ONNX_PTQ_LOGLEVEL`` or ``LOGLEVEL``: ``DEBUG``, ``INFO``, ``WARNING``, ``ERROR`` (default: INFO).
+- ``MODELOPT_ONNX_LOGLEVEL``: **deprecated** — same effect; emits a one-time warning (prefer ``MODELOPT_ONNX_PTQ_LOGLEVEL``).
+- ``MODELOPT_YOLO_LOGLEVEL``: **deprecated** — same effect; emits a one-time warning.
 """
 
 from __future__ import annotations
@@ -11,9 +13,11 @@ import argparse
 import logging
 import os
 import sys
+import warnings
 from pathlib import Path
 
-_ENV_KEYS = ("MODELOPT_YOLO_LOGLEVEL", "LOGLEVEL")
+_WARNED_LEGACY_ONNX = False
+_WARNED_LEGACY_YOLO = False
 
 
 def _parse_level(name: str | None) -> int:
@@ -21,6 +25,35 @@ def _parse_level(name: str | None) -> int:
         return logging.INFO
     name = name.strip().upper()
     return getattr(logging, name, logging.INFO)
+
+
+def _console_level_from_env() -> int:
+    global _WARNED_LEGACY_ONNX, _WARNED_LEGACY_YOLO
+    for key in ("MODELOPT_ONNX_PTQ_LOGLEVEL", "LOGLEVEL"):
+        raw = os.environ.get(key)
+        if raw:
+            return _parse_level(raw)
+    raw = os.environ.get("MODELOPT_ONNX_LOGLEVEL")
+    if raw:
+        if not _WARNED_LEGACY_ONNX:
+            _WARNED_LEGACY_ONNX = True
+            warnings.warn(
+                "MODELOPT_ONNX_LOGLEVEL is deprecated; use MODELOPT_ONNX_PTQ_LOGLEVEL",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        return _parse_level(raw)
+    raw = os.environ.get("MODELOPT_YOLO_LOGLEVEL")
+    if raw:
+        if not _WARNED_LEGACY_YOLO:
+            _WARNED_LEGACY_YOLO = True
+            warnings.warn(
+                "MODELOPT_YOLO_LOGLEVEL is deprecated; use MODELOPT_ONNX_PTQ_LOGLEVEL",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        return _parse_level(raw)
+    return logging.INFO
 
 
 def setup_logging(
@@ -48,12 +81,7 @@ def setup_logging(
     elif level is not None:
         console_level = level if isinstance(level, int) else _parse_level(str(level))
     else:
-        console_level = logging.INFO
-        for key in _ENV_KEYS:
-            raw = os.environ.get(key)
-            if raw:
-                console_level = _parse_level(raw)
-                break
+        console_level = _console_level_from_env()
 
     fmt = logging.Formatter(
         "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",

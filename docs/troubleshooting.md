@@ -40,12 +40,12 @@
 
 1. **Re-run PTQ with graph simplification** (can change Q/DQ layout):
    ```bash
-   model-opt-yolo quantize ... -- --simplify
+   modelopt-onnx-ptq quantize ... -- --simplify
    ```
 2. **Try a different TensorRT / container build** (new GPUs such as Blackwell sometimes hit parser edge cases fixed in later TRT drops).
 3. **Inspect the failing node** in [Netron](https://netron.app/) on `*.quant.onnx`: find the `QuantizeLinear` named in the log (e.g. `val_52_1_QuantizeLinear`) and check whether its input is effectively a scalar or mis-inferred.
 4. **Experiment** (accuracy may differ from strict PTQ):  
-   `model-opt-yolo build-trt --onnx ... --mode best`  
+   `modelopt-onnx-ptq build-trt --onnx ... --mode best`  
    If parsing succeeds, the issue is likely **strictly-typed** import of that Q/DQ pattern; treat as a workaround only.
 5. If it **used to work** with the **same** MO/TRT stack, compare **`nvidia-modelopt`** and **TensorRT** versions and the **FP ONNX** + **calibration** inputs; file a minimal repro with **NVIDIA Model Optimizer** or **TensorRT** if the graph is valid in ONNX but TRT still rejects it.
 
@@ -65,7 +65,7 @@
 
 **Cause:** Model Optimizer’s FP16 post-pass for non-quantized ops can break some dynamic detection heads.
 
-**Fix:** `model-opt-yolo quantize` defaults **`--high_precision_dtype fp16`**. If quantization fails, retry with **`--high_precision_dtype fp32`**.
+**Fix:** `modelopt-onnx-ptq quantize` defaults **`--high_precision_dtype fp16`**. If quantization fails, retry with **`--high_precision_dtype fp32`**.
 
 ---
 

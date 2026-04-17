@@ -15,9 +15,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from model_opt_yolo.io_checks import validate_readable_file
-from model_opt_yolo.logutil import add_logging_arguments, setup_logging
-from model_opt_yolo.session_paths import (
+from modelopt_onnx_ptq.io_checks import validate_readable_file
+from modelopt_onnx_ptq.logutil import add_logging_arguments, setup_logging
+from modelopt_onnx_ptq.session_paths import (
     default_build_trt_session_log,
     default_trt_engine_filename,
     effective_session_id,
@@ -78,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
         description=(
             "Build a TensorRT .engine from ONNX via trtexec. "
             "Modes: strongly-typed (default), best, fp16, fp16-int8 — default strongly-typed for PTQ/quantized ONNX. "
-            "Benchmark: model-opt-yolo trt-bench --engine PATH. "
+            "Benchmark: modelopt-onnx-ptq trt-bench --engine PATH. "
             "Append extra trtexec args after -- for overrides."
         )
     )

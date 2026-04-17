@@ -1,4 +1,4 @@
 include LICENSE
 include NOTICE
 include README.md
-recursive-include model_opt_yolo/profiles *.yaml *.yml *.txt
+recursive-include modelopt_onnx_ptq/profiles *.yaml *.yml *.txt

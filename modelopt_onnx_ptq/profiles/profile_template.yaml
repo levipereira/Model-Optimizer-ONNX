@@ -1,11 +1,11 @@
 # =============================================================================
-# Profile template — model-opt-yolo quantize --profile <this_file.yaml>
+# Profile template — modelopt-onnx-ptq quantize --profile <this_file.yaml>
 # =============================================================================
 # Copy this file, edit values, and pass --profile with the path.
 #
 # ``defaults`` section: only ``autotune`` is applied by the wrapper when you do NOT
 # pass ``--autotune`` on the CLI. int8/fp8/int4 mode, calibration method, calibration
-# file, and ONNX/output paths are still set by ``model-opt-yolo quantize`` (or
+# file, and ONNX/output paths are still set by ``modelopt-onnx-ptq quantize`` (or
 # pipeline-e2e).
 #
 # ``modelopt`` section: options mapped to ``python -m modelopt.onnx.quantization``.
@@ -25,7 +25,7 @@ description: >
   or use extra_args for advanced Model Optimizer flags.
 
 # -----------------------------------------------------------------------------
-# defaults — integration with ``model-opt-yolo quantize`` CLI
+# defaults — integration with ``modelopt-onnx-ptq quantize`` CLI
 # -----------------------------------------------------------------------------
 # autotune: used ONLY if you omit ``--autotune`` on the command line.
 # Values: null | false | quick | default | extensive | true (same as quick)

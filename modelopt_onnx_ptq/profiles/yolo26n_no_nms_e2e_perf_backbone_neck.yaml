@@ -7,7 +7,7 @@
 #   neck:     _40 … _75   (PAN/FPN region; approximate by node name)
 # Head Convs (_76 … _101) stay higher precision unless you use the “full” profile.
 #
-# Use: model-opt-yolo quantize ... --profile yolo26n_no_nms_e2e_perf_backbone_neck \\
+# Use: modelopt-onnx-ptq quantize ... --profile yolo26n_no_nms_e2e_perf_backbone_neck \\
 #        --high_precision_dtype fp16 --suffix .bn.quant.onnx
 # =============================================================================
 

@@ -8,7 +8,7 @@
 #
 # Two regexes → two --nodes_to_quantize entries (OR of patterns).
 #
-# Use: model-opt-yolo quantize ... --profile yolo26n_no_nms_e2e_perf_backbone_head \\
+# Use: modelopt-onnx-ptq quantize ... --profile yolo26n_no_nms_e2e_perf_backbone_head \\
 #        --high_precision_dtype fp16 --suffix .bh.quant.onnx
 # =============================================================================
 

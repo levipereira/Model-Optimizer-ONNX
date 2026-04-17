@@ -101,7 +101,7 @@ def trt_engine_logs_dir() -> Path:
 def default_build_trt_session_log(
     *, onnx_stem: str, ts: str | None = None, session_id: str | None = None
 ) -> Path:
-    """Log file for ``model-opt-yolo build-trt`` when ``--log-file`` is omitted.
+    """Log file for ``modelopt-onnx-ptq build-trt`` when ``--log-file`` is omitted.
 
     With *session_id*, logs go under ``pipeline_e2e/sessions/<id>/trt_engine/logs/`` so
     ``report-runs --session-id <id>`` picks them up alongside manual runs.
@@ -120,7 +120,7 @@ def default_build_trt_session_log(
 def default_trt_bench_session_log(
     *, engine_stem: str, ts: str | None = None, session_id: str | None = None
 ) -> Path:
-    """Log file for ``model-opt-yolo trt-bench`` when ``--log-file`` is omitted."""
+    """Log file for ``modelopt-onnx-ptq trt-bench`` when ``--log-file`` is omitted."""
     ts = ts or run_timestamp()
     log_dir = (
         pipeline_e2e_session_trt_logs(session_id)

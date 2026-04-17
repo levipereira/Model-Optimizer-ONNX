@@ -2,7 +2,7 @@
 """TensorRT engine profiling + TREx artifacts: ``trtexec`` build/profile, layer JSON, optional graph + compare.
 
 Requires the **trex** package (TensorRT ``trt-engine-explorer``). In Docker, TREx lives in
-``$TREX_VENV`` (separate venv from **model-opt-yolo**); this command prepends that venv's
+``$TREX_VENV`` (separate venv from **modelopt-onnx-ptq**); this command prepends that venv's
 ``site-packages`` to ``sys.path``, then re-executes with that interpreter only if **trex** is still
 not importable."""
 
@@ -20,10 +20,10 @@ import statistics
 from pathlib import Path
 from typing import Any
 
-from model_opt_yolo.build_trt import build_trtexec_argv
-from model_opt_yolo.io_checks import validate_readable_file
-from model_opt_yolo.logutil import add_logging_arguments, setup_logging
-from model_opt_yolo.session_paths import (
+from modelopt_onnx_ptq.build_trt import build_trtexec_argv
+from modelopt_onnx_ptq.io_checks import validate_readable_file
+from modelopt_onnx_ptq.logutil import add_logging_arguments, setup_logging
+from modelopt_onnx_ptq.session_paths import (
     default_trex_analyze_run_dir,
     effective_session_id,
     run_timestamp,
@@ -101,7 +101,7 @@ def _maybe_reexec_with_trex_venv(argv: list[str]) -> None:
     if Path(sys.executable).resolve() == py.resolve():
         return
     os.environ["MODELOPT_TREX_NO_REEXEC"] = "1"
-    os.execv(str(py), [str(py), "-m", "model_opt_yolo.trex_analyze", *argv])
+    os.execv(str(py), [str(py), "-m", "modelopt_onnx_ptq.trex_analyze", *argv])
 
 
 _last_trex_import_error: str | None = None

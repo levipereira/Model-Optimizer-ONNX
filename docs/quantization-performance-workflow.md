@@ -2,7 +2,7 @@
 
 Post-training quantization (PTQ) inserts **Q/DQ** nodes and can change how TensorRT fuses layers. That often helps latency, but it can also **hurt** it: extra **reformat** / cast-like operations, suboptimal kernels on sensitive ops, or overhead that outweighs int8/fp8 math savings. When that happens, treat tuning as an **iterative workflow** (measure → inspect → change quantization rules → rebuild → repeat).
 
-This document describes a practical loop using **model-opt-yolo**: calibration, quantization, accuracy and speed checks, engine profiling, manual analysis, then **YAML quantization profiles** (`quantize --profile`) to steer which ops or nodes are quantized. The profile rules apply when you run **`quantize`**; they define **Model Optimizer** scope (include/exclude op types or node name patterns), not TensorRT “shape profiles” (batch × C × H × W), though you should keep build and calibration shapes consistent.
+This document describes a practical loop using **modelopt-onnx-ptq**: calibration, quantization, accuracy and speed checks, engine profiling, manual analysis, then **YAML quantization profiles** (`quantize --profile`) to steer which ops or nodes are quantized. The profile rules apply when you run **`quantize`**; they define **Model Optimizer** scope (include/exclude op types or node name patterns), not TensorRT “shape profiles” (batch × C × H × W), though you should keep build and calibration shapes consistent.
 
 ---
 
@@ -10,7 +10,7 @@ This document describes a practical loop using **model-opt-yolo**: calibration, 
 
 | Term | Meaning here |
 |------|----------------|
-| **Quantization profile** | A **YAML** file passed to **`model-opt-yolo quantize --profile`**. It maps to Model Optimizer flags such as **`op_types_to_exclude`**, **`nodes_to_exclude`**, optional **`defaults.autotune`**, etc. Shipped examples live under [`model_opt_yolo/profiles/`](../model_opt_yolo/profiles/); copy and edit for your model. |
+| **Quantization profile** | A **YAML** file passed to **`modelopt-onnx-ptq quantize --profile`**. It maps to Model Optimizer flags such as **`op_types_to_exclude`**, **`nodes_to_exclude`**, optional **`defaults.autotune`**, etc. Shipped examples live under [`modelopt_onnx_ptq/profiles/`](../modelopt_onnx_ptq/profiles/); copy and edit for your model. |
 | **Profiling** | **`trtexec`** layer/timing exports, often via **`trex-analyze`**, to see which layers dominate latency (including reformat-like ops). |
 | **Autotune** | (Optional) **`quantize --autotune`** — integrated Q/DQ tuning using TensorRT timing. You can **skip it** and tune **`--profile` YAML** only: quantize → build-trt → eval-trt → trt-bench → trex-analyze → edit profile → repeat. |
 
@@ -18,7 +18,7 @@ This document describes a practical loop using **model-opt-yolo**: calibration, 
 
 ## Finding the best mode or method with pipeline-e2e
 
-To **compare int8 / fp8 / int4** and calibration methods in one session (same `calib.npy`, same eval), use **`model-opt-yolo pipeline-e2e`**:
+To **compare int8 / fp8 / int4** and calibration methods in one session (same `calib.npy`, same eval), use **`modelopt-onnx-ptq pipeline-e2e`**:
 
 | Flag | Role |
 |------|------|
@@ -32,7 +32,7 @@ Omit **`--autotune`** when you only want **profile + PTQ** tuning. **FP8** requi
 **Report:** `pipeline-e2e` finishes with **`report-runs`** using **`--merge-global-logs`**, which can **mix** bench/eval logs from the global **`artifacts/`** tree with the session. For a table built **only** from that session, run:
 
 ```bash
-model-opt-yolo report-runs --session-id <id> \
+modelopt-onnx-ptq report-runs --session-id <id> \
   -o artifacts/pipeline_e2e/sessions/<id>/report_session_only.md
 ```
 
@@ -87,16 +87,16 @@ Use the same ONNX stem, shapes, and **`build-trt --mode`** you intend for produc
 
 ```bash
 # 1) Calibration
-model-opt-yolo calib --images_dir data/coco/val2017/ ... --output_path artifacts/calibration/calib_coco.npy
+modelopt-onnx-ptq calib --images_dir data/coco/val2017/ ... --output_path artifacts/calibration/calib_coco.npy
 
 # 2) Quantize (first iteration — no custom profile)
-model-opt-yolo quantize \
+modelopt-onnx-ptq quantize \
   --calibration_data artifacts/calibration/calib_coco.npy \
   --onnx_path models/yolo.onnx \
   --quantize_mode int8 --calibration_method entropy
 
-# 2b) Quantize with a hand-tuned profile (no autotune) — try shipped YOLO26 examples under model_opt_yolo/profiles/
-model-opt-yolo quantize \
+# 2b) Quantize with a hand-tuned profile (no autotune) — try shipped YOLO26 examples under modelopt_onnx_ptq/profiles/
+modelopt-onnx-ptq quantize \
   --calibration_data artifacts/calibration/calib_coco.npy \
   --onnx_path models/yolo.onnx \
   --quantize_mode int8 --calibration_method entropy \
@@ -104,18 +104,18 @@ model-opt-yolo quantize \
   --suffix .v1.quant.onnx
 
 # 3–4) Build, evaluate, benchmark (paths follow your artifacts layout)
-model-opt-yolo build-trt --onnx artifacts/quantized/<stem>.int8.entropy.quant.onnx --mode strongly-typed --img-size 640 --batch 1
-model-opt-yolo eval-trt --engine artifacts/trt_engine/<stem>.b1_i640.engine ...
-model-opt-yolo trt-bench --engine artifacts/trt_engine/<stem>.b1_i640.engine ...
+modelopt-onnx-ptq build-trt --onnx artifacts/quantized/<stem>.int8.entropy.quant.onnx --mode strongly-typed --img-size 640 --batch 1
+modelopt-onnx-ptq eval-trt --engine artifacts/trt_engine/<stem>.b1_i640.engine ...
+modelopt-onnx-ptq trt-bench --engine artifacts/trt_engine/<stem>.b1_i640.engine ...
 
 # 5) Profile the quantized plan
-model-opt-yolo trex-analyze \
+modelopt-onnx-ptq trex-analyze \
   --onnx artifacts/quantized/<stem>.int8.entropy.quant.onnx \
   --mode strongly-typed --img-size 640
 
 # 5b) Compare layer timings: FP16 TensorRT plan vs quantized ONNX (two builds — see --compare)
 #     Primary = baseline ONNX + --mode fp16; second = PTQ ONNX + --strongly-typed.
-model-opt-yolo trex-analyze \
+modelopt-onnx-ptq trex-analyze \
   --onnx models/yolo.onnx \
   --mode fp16 \
   --compare \
@@ -127,10 +127,10 @@ model-opt-yolo trex-analyze \
 # layers where the int8 plan spends more time (often Reformat / cast-like ops when fusion breaks).
 ```
 
-After you edit **`profiles/my_yolo_rules.yaml`** (starting from [`ultralytics_yolo26_flexible.yaml`](../model_opt_yolo/profiles/ultralytics_yolo26_flexible.yaml)):
+After you edit **`profiles/my_yolo_rules.yaml`** (starting from [`ultralytics_yolo26_flexible.yaml`](../modelopt_onnx_ptq/profiles/ultralytics_yolo26_flexible.yaml)):
 
 ```bash
-model-opt-yolo quantize \
+modelopt-onnx-ptq quantize \
   --calibration_data artifacts/calibration/calib_coco.npy \
   --onnx_path models/yolo.onnx \
   --quantize_mode int8 --calibration_method entropy \
@@ -141,7 +141,7 @@ Rebuild the engine and re-run **`eval-trt`**, **`trt-bench`**, and **`trex-analy
 
 ### YOLO26n — profile candidates (no autotune, e2e export without embedded NMS)
 
-The **`no_nms_e2e`** segment in the profile name denotes an **end-to-end** ONNX **without** embedded NMS (NMS runs in the app / eval). Shipped under [`model_opt_yolo/profiles/`](../model_opt_yolo/profiles/); pick one per run, compare **`trt-bench`** + **`eval-trt`** + optional **`trex-analyze --compare`** vs FP16.
+The **`no_nms_e2e`** segment in the profile name denotes an **end-to-end** ONNX **without** embedded NMS (NMS runs in the app / eval). Shipped under [`modelopt_onnx_ptq/profiles/`](../modelopt_onnx_ptq/profiles/); pick one per run, compare **`trt-bench`** + **`eval-trt`** + optional **`trex-analyze --compare`** vs FP16.
 
 | Profile | Idea |
 |---------|------|
@@ -171,9 +171,9 @@ Integrated Q/DQ tuning (TensorRT timing) — **`quick`** / **`default`** / **`ex
 
 ## Related documentation
 
-- [CLI reference — `quantize`](cli-reference.md#model-opt-yolo-quantize) (pass-through flags mirror Model Optimizer’s `--help`)
-- [CLI reference — `pipeline-e2e`](cli-reference.md#model-opt-yolo-pipeline-e2e) — **`--quant-matrix`**, **`--quantize-profile`**, **`--high-precision-dtype`**
-- [CLI reference — `trex-analyze`](cli-reference.md#model-opt-yolo-trex-analyze)
+- [CLI reference — `quantize`](cli-reference.md#modelopt-onnx-ptq-quantize) (pass-through flags mirror Model Optimizer’s `--help`)
+- [CLI reference — `pipeline-e2e`](cli-reference.md#modelopt-onnx-ptq-pipeline-e2e) — **`--quant-matrix`**, **`--quantize-profile`**, **`--high-precision-dtype`**
+- [CLI reference — `trex-analyze`](cli-reference.md#modelopt-onnx-ptq-trex-analyze)
 - [Workflow](workflow.md) — **`pipeline-e2e`**, **`--autotune`**, **`--quant-matrix`**
 - [Troubleshooting](troubleshooting.md) — environment and parser issues
 - Agent Skills: [`skills/ptq-trt-performance/SKILL.md`](../skills/ptq-trt-performance/SKILL.md) — agent checklist for benchmarking

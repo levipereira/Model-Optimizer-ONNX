@@ -24,7 +24,7 @@ Batch **B** may be dynamic; this eval loop uses **B=1** per image.
    pre-clustering; this path applies score filtering + per-class NMS before rescaling.
 
 Usage:
-    model-opt-yolo eval-trt --output-format onnx_trt \\
+    modelopt-onnx-ptq eval-trt --output-format onnx_trt \\
         --engine model.engine --images data/coco/val2017 \\
         --annotations data/coco/annotations/instances_val2017.json
 """
@@ -45,9 +45,9 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
-from model_opt_yolo.io_checks import validate_existing_dir, validate_readable_file
-from model_opt_yolo.logutil import add_logging_arguments, setup_logging
-from model_opt_yolo.session_paths import (
+from modelopt_onnx_ptq.io_checks import validate_existing_dir, validate_readable_file
+from modelopt_onnx_ptq.logutil import add_logging_arguments, setup_logging
+from modelopt_onnx_ptq.session_paths import (
     artifacts_root,
     default_eval_session_log,
     effective_session_id,
@@ -114,7 +114,7 @@ def do_inference(context, inputs, outputs, stream):
 
 
 # ---------------------------------------------------------------------------
-# Preprocessing (letterbox — same as model_opt_yolo.calib_prep)
+# Preprocessing (letterbox — same as modelopt_onnx_ptq.calib_prep)
 # ---------------------------------------------------------------------------
 
 def letterbox(

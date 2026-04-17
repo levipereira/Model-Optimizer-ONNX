@@ -11,16 +11,16 @@ import subprocess
 import sys
 from pathlib import Path
 
-from model_opt_yolo.io_checks import validate_numpy_array_file, validate_readable_file
-from model_opt_yolo.logutil import add_logging_arguments, setup_logging
-from model_opt_yolo.quantize_profile import (
+from modelopt_onnx_ptq.io_checks import validate_numpy_array_file, validate_readable_file
+from modelopt_onnx_ptq.logutil import add_logging_arguments, setup_logging
+from modelopt_onnx_ptq.quantize_profile import (
     describe_profile,
     load_quantize_profile,
     merge_autotune_from_profile,
     modelopt_args_from_profile,
     resolve_profile_path,
 )
-from model_opt_yolo.session_paths import (
+from modelopt_onnx_ptq.session_paths import (
     artifacts_root,
     default_quantize_session_log,
     default_quantize_session_log_batch,
@@ -141,7 +141,7 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "YAML profile (built-in name or path) with modelopt include/exclude rules. "
             "Shipped examples: ultralytics_yolo26_flexible, matmul_fp_exclude. "
-            "See model_opt_yolo/profiles/*.yaml. Requires PyYAML."
+            "See modelopt_onnx_ptq/profiles/*.yaml. Requires PyYAML."
         ),
     )
     parser.add_argument(
