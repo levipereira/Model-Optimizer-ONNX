@@ -70,7 +70,7 @@ Commands:
   quantize    NVIDIA Model Optimizer ONNX PTQ (--autotune quick|default|extensive for Q/DQ tuning)
   build-trt   TensorRT engine from ONNX (--mode strongly-typed|best|fp16|fp16-int8)
   trt-bench   trtexec throughput/latency on an existing .engine (--loadEngine; no rebuild)
-  eval-trt    COCO mAP on TRT engines (EfficientNMS, Ultralytics, or DeepStream-Yolo output)
+  eval-trt    COCO mAP on TRT engines (--output-format auto|ultralytics_e2e|ultralytics_raw|deepstream_yolo; alias ultralytics=e2e; --onnx with auto)
   report-runs Scan trt_bench / eval logs → Markdown report (tables + charts); --session-id uses pipeline_e2e/sessions/…
   pipeline-e2e  End-to-end: calib → FP16 baseline → quantize [+autotune] → build-trt → eval-trt → trt-bench → report
   trex-analyze  trtexec build+profile; at most one of --compare | --graph | --report | none (needs trex)
@@ -86,7 +86,8 @@ Examples:
       --onnx_path models/yolo.onnx --profile matmul_fp_exclude
   modelopt-onnx-ptq build-trt --onnx artifacts/quantized/model.int8.entropy.quant.onnx --img-size 640 --batch 1
   modelopt-onnx-ptq trt-bench --engine artifacts/trt_engine/model.int8.entropy.quant.b1_i640.engine
-  modelopt-onnx-ptq eval-trt --output-format onnx_trt --engine artifacts/trt_engine/model.int8.entropy.quant.b1_i640.engine
+  modelopt-onnx-ptq eval-trt --output-format auto --onnx models/model.onnx --engine artifacts/trt_engine/model.int8.entropy.quant.b1_i640.engine
+  modelopt-onnx-ptq eval-trt --output-format deepstream_yolo --engine artifacts/trt_engine/model.int8.entropy.quant.b1_i640.engine
 
 See also: modelopt-onnx-ptq <command> --help
 """,

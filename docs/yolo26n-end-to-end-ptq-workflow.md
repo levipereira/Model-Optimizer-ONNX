@@ -118,7 +118,7 @@ modelopt-onnx-ptq pipeline-e2e \
   --session-id yolo26n_prof_backbone
 ```
 
-- **`--output-format deepstream_yolo`** — Matches a pre-NMS `[B, N, 6]` tensor; use **`ultralytics`** or **`onnx_trt`** if your export differs.
+- **`--output-format deepstream_yolo`** — Matches a pre-NMS `[B, N, 6]` tensor; use **`ultralytics`** or **`auto`** if your export differs.
 - **`--high-precision-dtype fp16`** — Also the current **`quantize`** default; you may omit it if you rely on defaults.
 - The session writes **`e2e_report.md`** by default; a manually named report **`report_yolo26n_prof_backbone.md`** may also exist in the same folder.
 

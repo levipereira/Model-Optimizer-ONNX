@@ -161,18 +161,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--output-format",
         type=str,
-        default="onnx_trt",
-        choices=("onnx_trt", "efficient_nms", "ultralytics", "deepstream_yolo"),
-        help="eval-trt --output-format: must match your ONNX export (default: onnx_trt).",
+        default="auto",
+        choices=(
+            "auto",
+            "ultralytics_e2e",
+            "ultralytics",
+            "ultralytics_raw",
+            "deepstream_yolo",
+        ),
+        help=(
+            "eval-trt --output-format: auto infers from ONNX (passes --onnx). "
+            "ultralytics_e2e: [B,N,6] with NMS in graph (alias: ultralytics). "
+            "ultralytics_raw: [B,4+nc,anchors] typical default ONNX. deepstream_yolo: [B,A,6]."
+        ),
     )
     parser.add_argument(
         "--input-name",
         type=str,
-        default="images",
+        default=None,
         metavar="NAME",
         help=(
-            "ONNX input tensor name for build-trt shape profiles (default: images). "
-            "Must match the graph input (e.g. ``input`` for some DeepStream/YOLO exports)."
+            "ONNX input tensor name for build-trt shape profiles. "
+            "If omitted, build-trt infers the name when the graph has a single input, else uses ``images``."
         ),
     )
     parser.add_argument(
@@ -427,8 +437,11 @@ def main(argv: list[str] | None = None) -> int:
             str(args.img_size),
             "--batch",
             str(args.batch),
-            "--input-name",
-            args.input_name,
+            *(
+                ["--input-name", args.input_name]
+                if args.input_name is not None
+                else []
+            ),
             "--mode",
             "fp16",
             "--engine-out",
@@ -466,6 +479,11 @@ def main(argv: list[str] | None = None) -> int:
                 str(engine_fp16),
                 "--output-format",
                 args.output_format,
+                *(
+                    ["--onnx", str(onnx_path)]
+                    if args.output_format == "auto"
+                    else []
+                ),
                 "--images",
                 str(images_resolved),
                 "--annotations",
@@ -588,8 +606,11 @@ def main(argv: list[str] | None = None) -> int:
             str(args.img_size),
             "--batch",
             str(args.batch),
-            "--input-name",
-            args.input_name,
+            *(
+                ["--input-name", args.input_name]
+                if args.input_name is not None
+                else []
+            ),
             "--mode",
             args.build_mode,
             "--engine-out",
@@ -630,6 +651,11 @@ def main(argv: list[str] | None = None) -> int:
             str(engine_path),
             "--output-format",
             args.output_format,
+            *(
+                ["--onnx", str(q_out)]
+                if args.output_format == "auto"
+                else []
+            ),
             "--images",
             str(Path(args.images_dir).expanduser().resolve()),
             "--annotations",

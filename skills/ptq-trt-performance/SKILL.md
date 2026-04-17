@@ -12,16 +12,18 @@ description: >-
 
 # PTQ + TensorRT performance (modelopt-onnx-ptq)
 
+**ONNX I/O / eval layout:** For removing **`--output-format`**, renaming **`--input-name`** → **`--input-tensor`**, ONNX defaults for **`input_tensor`** / **`output-tensor`**, and supported shapes, see **[onnx-eval-io-autodetect](onnx-eval-io-autodetect/SKILL.md)**.
+
 ## Goal
 
-Produce **comparable** numbers: same calibration tensor shapes, same `build-trt` input name / image size, same `eval-trt` dataset and `--output-format`, then compare **mAP** (accuracy) and **trt-bench** (throughput / GPU latency).
+Produce **comparable** numbers: same calibration tensor shapes, same `build-trt` input tensor name / image size, same `eval-trt` dataset and **matching detection decode** (today: `--output-format`; planned: ONNX-driven auto-detection per **onnx-eval-io-autodetect**), then compare **mAP** (accuracy) and **trt-bench** (throughput / GPU latency).
 
 ## Prerequisites
 
 - ONNX under `models/` (or pass absolute path).
 - COCO **val2017** images + `instances_val2017.json` (or adjust `--images-dir` / `--annotations`).
-- Match **`--input-name`** to the graph (e.g. Ultralytics often `images`; some exports `input`).
-- Match **`--output-format`** / **`--output-tensor`** to the export for **`eval-trt`** (see CLI help).
+- Match **`--input-tensor`** (or legacy **`--input-name`**) to the graph (e.g. Ultralytics often `images`; some exports `input`). If omitted, infer from ONNX (**onnx-eval-io-autodetect**).
+- Match **output layout** for **`eval-trt`** — use **`--output-tensor`** when needed; ONNX auto-detection replaces a required **`--output-format`** once implemented (**onnx-eval-io-autodetect**).
 - **FP8** PTQ needs a GPU with **compute capability ≥ 8.9** (e.g. RTX 4090).
 
 ## Path A — Full mode/method grid (`pipeline-e2e`)
@@ -33,7 +35,7 @@ Use **`modelopt-onnx-ptq pipeline-e2e`** when the user wants to compare **int8 /
    - **`int8.all`** → two int8 runs; combine with commas as needed (see `docs/workflow.md`).
 2. Optional: **`--quantize-profile <name>`** — same YAML profile for **every** quantize step (e.g. a YOLO26n backbone whitelist under `modelopt_onnx_ptq/profiles/`).
 3. **`--high-precision-dtype`** defaults to **fp16** in **`quantize`** / **`pipeline-e2e`**; use **fp32** only if PTQ shape inference fails. Omit **`--autotune`** if the user wants profile-only tuning.
-4. Set **`--input-name`**, **`--output-format`**, **`--build-mode`** (default `strongly-typed` for PTQ ONNX).
+4. Set **`--input-name`** / **`--input-tensor`** (when renamed) to match the graph, **`--build-mode`** (default `strongly-typed` for PTQ ONNX). For **eval**, default **`--output-format auto`** on **`pipeline-e2e`** forwards **`--onnx`** and infers **`ultralytics`** vs **`deepstream_yolo`** (**onnx-eval-io-autodetect**). Four-tensor detection outputs are not supported.
 5. Use **`--session-id my_run`** so all logs sit under `artifacts/pipeline_e2e/sessions/<id>/`.
 6. If a combo fails, **`--continue-on-error`** keeps the rest.
 7. **`--no-fp16-baseline`** skips the extra FP16 engine on the **original** ONNX (saves one full eval if only PTQ rows matter).

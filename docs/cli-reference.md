@@ -13,7 +13,7 @@ modelopt-onnx-ptq --help
 | `quantize` | Wrapper around `python -m modelopt.onnx.quantization` (PTQ, optional `--autotune`) |
 | `build-trt` | Run `trtexec` to build a `.engine` from ONNX (`--mode`: `strongly-typed`, `best`, `fp16`, `fp16-int8`) |
 | `trt-bench` | `trtexec` throughput/latency on an **existing** `.engine` (`--loadEngine`; logs under `artifacts/trt_engine/logs/`) |
-| `eval-trt` | COCO mAP on TensorRT engines — **`--output-format`** chooses `onnx_trt` (four tensors), Ultralytics single-tensor, or DeepStream-Yolo |
+| `eval-trt` | COCO mAP on TensorRT engines — **`--output-format`** `auto` \| `ultralytics` \| `deepstream_yolo` + optional **`--onnx`** |
 | `report-runs` | Aggregate `trt-bench` / `eval-trt` logs into a Markdown report |
 | `pipeline-e2e` | Full run: calib → FP16 baseline → quantize → build-trt → eval-trt → trt-bench → report (optional `--autotune`, `--quant-matrix`) |
 | `trex-analyze` | `trtexec` build + profile; pick **one** of **`--compare`**, **`--graph`**, **`--report`**, or none (needs **`trex`** / Docker TREx) |
@@ -184,7 +184,7 @@ Runs **`trtexec`** to compile an ONNX file into a TensorRT **`.engine`**. Requir
 | `--onnx` | Input `.onnx` path (**required**) |
 | `--img-size` | Square `H=W` for shape profile (default `640`) |
 | `--batch` | Batch size for shapes (see modes below; default `1`) |
-| `--input-name` | Input tensor name for `--minShapes` / `--optShapes` / `--maxShapes` (default `images`) |
+| `--input-name` | Input tensor name for `--minShapes` / `--optShapes` / `--maxShapes`. **Omit** to infer from ONNX when the graph has exactly one input; if inference fails, **`images`** is used (see `build-trt --help`). |
 | `--mode` | `strongly-typed` (default), `best`, `fp16`, or `fp16-int8` |
 | `--engine-out` | Output `.engine` path (default: `<artifacts>/trt_engine/<onnx-stem>.b<batch>_i<img-size>.engine` so different batch/size builds do not overwrite) |
 | `--timing-cache` | Timing cache file (default: `<engine>.timing.cache`) |
@@ -306,14 +306,15 @@ modelopt-onnx-ptq trt-bench --engine model.engine --warm-up 500 --iterations 100
 
 Runs **TensorRT** inference on **COCO val2017** and computes **bbox mAP** with **pycocotools**. Preprocessing uses the same **letterbox** + **÷255** convention as `calib` (aligned with common Ultralytics-style exports).
 
-You must set **`--output-format`** to match how your `.engine` exposes detections. The three modes correspond to common export stacks:
+**Supported exports:** a **single** detection tensor **`[B, N, 6]`** (xyxy + score + class). **Four-tensor** layouts (`num_dets`, `det_boxes`, …) are **not** supported — rebuild or re-export with one `[B,N,6]` output if you need **`eval-trt`**.
+
+Set **`--output-format`** to match how your `.engine` exposes detections, or use **`auto`**:
 
 | `--output-format` | References | TensorRT I/O (typical) |
 |-------------------|------------|-------------------------|
-| **`onnx_trt`** | **[levipereira/ultralytics](https://github.com/levipereira/ultralytics)** — `format=onnx_trt` / `onnx_trt.py`; four fixed detection outputs (see upstream README). The graph is **not** defined solely by “EfficientNMS”: e‑to‑e heads omit the TRT NMS plugin; YOLOv8-style paths may insert EfficientNMS_TRT — **`eval-trt`** always decodes the same four tensor names. | **Input:** `[B, 3, H, W]`. **Outputs:** `num_dets` `[B, 1]`, `det_boxes` `[B, K, 4]`, `det_scores` `[B, K]`, `det_classes` `[B, K]`. Boxes **xyxy** in **letterboxed** input pixel space. |
-| **`efficient_nms`** | *Alias* for **`onnx_trt`** (same behavior; legacy flag name). | Same as **`onnx_trt`**. |
 | **`ultralytics`** | **[ultralytics/ultralytics](https://github.com/ultralytics/ultralytics)** — export to ONNX/TensorRT with NMS in the graph. | **Single** output tensor (e.g. `output0`) `[B, N, 6]` (e.g. `N = 300`). Rows: **xyxy, score, class**; NMS already applied. |
 | **`deepstream_yolo`** | **[marcoslucianops/DeepStream-Yolo](https://github.com/marcoslucianops/DeepStream-Yolo)** — same layout as the **`nvdsparsebbox_Yolo`** custom parser (xyxy + score + class per anchor). | **Single** output (e.g. `output`) `[B, num_anchors, 6]` (e.g. **8400** anchors at 640×640). **Pre-clustering**; this tool applies **per-class NMS** (`--iou-thres`) then rescales boxes. |
+| **`auto`** | *Inference* — not an export format. | Chooses **`ultralytics`** vs **`deepstream_yolo`** from the paired **`--onnx`** file (recommended) or from engine output names/shapes. |
 
 **How evaluation works (all modes):** (1) load image, letterbox to engine `H×W`, run inference with **batch 1**; (2) decode tensors according to `--output-format`; (3) map boxes from letterboxed coordinates to **original image** size; (4) map training **class indices** to **COCO category IDs** (80-class COCO mapping); (5) write predictions JSON and run **COCOeval**.
 
@@ -322,8 +323,9 @@ You must set **`--output-format`** to match how your `.engine` exposes detection
 | Argument | Description |
 |----------|-------------|
 | `--engine` | Path to `.engine` (**required**) |
-| `--output-format` | `onnx_trt` \| `efficient_nms` (alias) \| `ultralytics` \| `deepstream_yolo` (**required**) |
-| `--output-tensor` | Output tensor name for `ultralytics` / `deepstream_yolo` if the engine has **multiple** outputs and none of the default names (`output0`, `output`, `output1`) is correct |
+| `--output-format` | `auto` \| `ultralytics` \| `deepstream_yolo` (**required**) |
+| `--onnx` | Optional path to an ONNX file for the **same** graph as the engine. With **`auto`**, used for layout detection; if the graph has **one** output, that name is preferred when binding the detection tensor (when it exists on the engine). |
+| `--output-tensor` | Override detection output name. If omitted, **`--onnx`** with a single graph output sets the name when it matches the engine; else one output → use it; else try `output0` / `output` / `output1`. |
 | `--iou-thres` | IoU threshold for **per-class NMS** in `deepstream_yolo` only (default `0.45`) |
 | `--images` | COCO images directory (default `data/coco/val2017`) |
 | `--annotations` | `instances_val2017.json` |
@@ -336,8 +338,8 @@ You must set **`--output-format`** to match how your `.engine` exposes detection
 Examples:
 
 ```bash
-# Four-tensor layout (levipereira/ultralytics onnx_trt)
-modelopt-onnx-ptq eval-trt --output-format onnx_trt --engine model.engine \
+# Auto layout (DeepStream-Yolo single [B,N,6] export: pass the same ONNX used for trtexec)
+modelopt-onnx-ptq eval-trt --output-format auto --onnx model.onnx --engine model.engine \
   --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json
 
 # Ultralytics single tensor (explicit name if needed)
@@ -367,6 +369,7 @@ Orchestrates **calib** → **FP16 baseline** on the original ONNX (`build-trt --
 | `--continue-on-error` | Continue after a failed combo |
 | `--no-fp16-baseline` | Skip the FP16 baseline on the original ONNX (only run PTQ combos) |
 | `--no-report` | Skip final Markdown report |
+| `--output-format` | Forwarded to **eval-trt** (default **`auto`**). The pipeline passes **`--onnx`** to **eval-trt** (original ONNX for the FP16 baseline, quantized ONNX for each PTQ row). |
 
 See `modelopt-onnx-ptq pipeline-e2e --help` for image paths, `--input-name`, bench duration, etc.
 

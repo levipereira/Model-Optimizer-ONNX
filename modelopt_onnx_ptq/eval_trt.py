@@ -3,28 +3,20 @@
 
 Batch **B** may be dynamic; this eval loop uses **B=1** per image.
 
-**Output formats** (choose with ``--output-format``):
+**Output formats** (``--output-format``; ``auto`` with optional ``--onnx`` infers the rest):
 
-1. ``onnx_trt`` — Four detection tensors (same layout as
-   `levipereira/ultralytics <https://github.com/levipereira/ultralytics>`_ ``format=onnx_trt`` /
-   ``onnx_trt.py``). This is **not** the same thing as “EfficientNMS” as a plugin name: depending
-   on the head, the exported ONNX may be end-to-end (NMS inside the net) or may insert
-   EfficientNMS_TRT — either way, TensorRT exposes ``num_dets``, ``det_boxes``, ``det_scores``,
-   ``det_classes``. Legacy alias: ``efficient_nms`` (same decoding).
+1. ``ultralytics_e2e`` — End-to-end Ultralytics export: single tensor (e.g. ``output0``),
+   shape ``[B, N, 6]``, one row per post-NMS box (NMS **in the graph**). Alias: ``ultralytics``.
 
-   - Input (e.g. ``images``): ``[B, 3, H, W]``
-   - ``num_dets`` ``[B, 1]``, ``det_boxes`` ``[B, K, 4]``, ``det_scores`` ``[B, K]``,
-     ``det_classes`` ``[B, K]`` (xyxy in letterboxed input space)
+2. ``ultralytics_raw`` — **Default ONNX export** from many Ultralytics versions: no NMS in the
+   graph; shape ``[B, 4+nc, num_anchors]`` (e.g. ``[1, 84, 8400]`` at 640px). NMS runs in
+   ``eval-trt``. Class logits are sigmoid-scored; boxes ``cx, cy, w, h`` in letterboxed space.
 
-2. ``ultralytics`` — Single tensor (e.g. ``output0``), shape ``[B, N, 6]``, one row per
-   post-NMS box: ``x1, y1, x2, y2, score, class_id`` in letterboxed pixel coords.
-
-3. ``deepstream_yolo`` — Single tensor (e.g. ``output``), shape ``[B, num_anchors, 6]``,
-   same six fields as `DeepStream-Yolo` ``nvdsparsebbox_Yolo`` (xyxy + score + class),
-   pre-clustering; this path applies score filtering + per-class NMS before rescaling.
+3. ``deepstream_yolo`` — Single tensor (e.g. ``output``), packed ``[B, num_anchors, 6]`` as in
+   DeepStream-Yolo ``nvdsparsebbox_Yolo``; per-class NMS in ``eval-trt``.
 
 Usage:
-    modelopt-onnx-ptq eval-trt --output-format onnx_trt \\
+    modelopt-onnx-ptq eval-trt --output-format auto --onnx model.onnx \\
         --engine model.engine --images data/coco/val2017 \\
         --annotations data/coco/annotations/instances_val2017.json
 """
@@ -47,19 +39,18 @@ from tqdm import tqdm
 
 from modelopt_onnx_ptq.io_checks import validate_existing_dir, validate_readable_file
 from modelopt_onnx_ptq.logutil import add_logging_arguments, setup_logging
+from modelopt_onnx_ptq.onnx_eval_layout import (
+    infer_default_output_tensor_name_from_onnx,
+    infer_eval_output_format_from_onnx,
+    infer_eval_output_format_from_trt_outputs,
+    normalize_eval_output_format,
+)
 from modelopt_onnx_ptq.session_paths import (
     artifacts_root,
     default_eval_session_log,
     effective_session_id,
     run_timestamp,
 )
-
-
-def normalize_eval_output_format(fmt: str) -> str:
-    """Canonicalize ``--output-format`` (``efficient_nms`` → ``onnx_trt``)."""
-    if fmt == "efficient_nms":
-        return "onnx_trt"
-    return fmt
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +61,7 @@ import pycuda.driver as cuda
 import tensorrt as trt
 
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
-# Register libnvinfer_plugin (EfficientNMS_TRT, etc.) before deserializing engines that use plugins.
+# Register libnvinfer_plugin before deserializing engines that use TRT plugins.
 trt.init_libnvinfer_plugins(TRT_LOGGER, "")
 
 
@@ -148,45 +139,8 @@ def preprocess_image(path: str, img_size: int) -> tuple[np.ndarray, dict]:
 
 
 # ---------------------------------------------------------------------------
-# Postprocessing for onnx_trt four-tensor layout (num_dets, det_*)
+# Postprocessing — single tensor [B, N, 6]
 # ---------------------------------------------------------------------------
-
-def postprocess_e2e(
-    result: dict[str, np.ndarray],
-    meta: dict,
-    conf_thres: float = 0.001,
-) -> np.ndarray:
-    """Decode ``num_dets`` / ``det_*`` bindings -> Nx6 [x1,y1,x2,y2,conf,cls] in original image coords.
-
-    Expected keys: num_dets [B,1], det_boxes [B,K,4], det_scores [B,K], det_classes [B,K].
-    """
-    num_dets = int(result["num_dets"][0, 0])
-    if num_dets == 0:
-        return np.zeros((0, 6), dtype=np.float32)
-
-    boxes = result["det_boxes"][0, :num_dets]     # [N, 4] x1 y1 x2 y2
-    scores = result["det_scores"][0, :num_dets]    # [N]
-    classes = result["det_classes"][0, :num_dets]   # [N]
-
-    # Filter by confidence
-    mask = scores > conf_thres
-    if not mask.any():
-        return np.zeros((0, 6), dtype=np.float32)
-    boxes = boxes[mask]
-    scores = scores[mask]
-    classes = classes[mask]
-
-    # Rescale from input-space (letterboxed 640x640) to original image coords
-    ratio = meta["ratio"]
-    dw, dh = meta["pad"]
-    boxes[:, [0, 2]] = (boxes[:, [0, 2]] - dw) / ratio
-    boxes[:, [1, 3]] = (boxes[:, [1, 3]] - dh) / ratio
-    boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, meta["orig_w"])
-    boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, meta["orig_h"])
-
-    dets = np.column_stack([boxes, scores[:, None], classes[:, None].astype(np.float32)])
-    return dets.astype(np.float32)
-
 
 def nms_xyxy_one_class(boxes: np.ndarray, scores: np.ndarray, iou_thres: float) -> np.ndarray:
     """Greedy NMS; boxes [N,4] xyxy, scores [N]. Returns indices into boxes."""
@@ -285,6 +239,50 @@ def postprocess_single_tensor_xyxy(
     ).astype(np.float32)
 
 
+def _sigmoid(x: np.ndarray) -> np.ndarray:
+    return (1.0 / (1.0 + np.exp(-np.clip(x, -88.0, 88.0)))).astype(np.float32)
+
+
+def postprocess_ultralytics_raw(
+    pred: np.ndarray,
+    meta: dict,
+    conf_thres: float,
+    iou_thres: float,
+) -> np.ndarray:
+    """Decode ``[1, 4+nc, num_anchors]`` -> Nx6 in original image coords (x1,y1,x2,y2,conf,cls)."""
+    if pred.ndim != 3 or pred.shape[0] != 1:
+        raise ValueError(f"Expected pred shape [1, 4+nc, num_anchors], got {pred.shape}")
+    _, c, _ = pred.shape
+    nc = c - 4
+    if nc < 1:
+        raise ValueError(f"Need at least one class channel; got C={c}.")
+    x = pred[0].astype(np.float32).transpose(1, 0)
+    boxes_xywh = x[:, :4]
+    cls_prob = _sigmoid(x[:, 4:])
+    scores = cls_prob.max(axis=1).astype(np.float32)
+    cls_ids = cls_prob.argmax(axis=1).astype(np.int64)
+    mask = scores > conf_thres
+    if not mask.any():
+        return np.zeros((0, 6), dtype=np.float32)
+    boxes_xywh = boxes_xywh[mask]
+    scores = scores[mask]
+    cls_ids = cls_ids[mask]
+    cx, cy, w, h = boxes_xywh.T
+    x1 = cx - 0.5 * w
+    y1 = cy - 0.5 * h
+    x2 = cx + 0.5 * w
+    y2 = cy + 0.5 * h
+    boxes = np.stack([x1, y1, x2, y2], axis=1).astype(np.float32)
+    keep = nms_per_class_xyxy(boxes, scores, cls_ids, iou_thres)
+    boxes = boxes[keep]
+    scores = scores[keep]
+    cls_ids = cls_ids[keep]
+    boxes_orig = letterbox_to_original(boxes, meta)
+    return np.column_stack(
+        [boxes_orig, scores[:, None], cls_ids.astype(np.float32)]
+    ).astype(np.float32)
+
+
 # ---------------------------------------------------------------------------
 # COCO class mapping (80 training classes -> 91 COCO category IDs)
 # ---------------------------------------------------------------------------
@@ -302,6 +300,16 @@ COCO80_TO_COCO91 = [
 # Main evaluation loop
 # ---------------------------------------------------------------------------
 
+def _input_tensor_names(engine) -> list[str]:
+    """Names of INPUT tensors in engine binding order (same order as ``allocate_buffers`` inputs)."""
+    out: list[str] = []
+    for i in range(engine.num_io_tensors):
+        n = engine.get_tensor_name(i)
+        if engine.get_tensor_mode(n) == trt.TensorIOMode.INPUT:
+            out.append(n)
+    return out
+
+
 def _output_tensor_names(engine) -> set[str]:
     names: set[str] = set()
     for i in range(engine.num_io_tensors):
@@ -309,6 +317,16 @@ def _output_tensor_names(engine) -> set[str]:
         if engine.get_tensor_mode(n) == trt.TensorIOMode.OUTPUT:
             names.add(n)
     return names
+
+
+def _trt_output_specs(engine) -> list[tuple[str, tuple[int, ...]]]:
+    """TensorRT output tensor names and shapes (for layout auto-detection)."""
+    out: list[tuple[str, tuple[int, ...]]] = []
+    for i in range(engine.num_io_tensors):
+        name = engine.get_tensor_name(i)
+        if engine.get_tensor_mode(name) == trt.TensorIOMode.OUTPUT:
+            out.append((name, tuple(engine.get_tensor_shape(name))))
+    return out
 
 
 def run_eval(
@@ -320,12 +338,15 @@ def run_eval(
     save_json: str | None = None,
     *,
     output_format: str,
+    onnx_path: str | None = None,
     output_tensor: str | None = None,
     iou_thres: float = 0.45,
     log: logging.Logger,
 ) -> None:
     from pycocotools.coco import COCO
     from pycocotools.cocoeval import COCOeval
+
+    output_format = normalize_eval_output_format(output_format)
 
     # Load engine
     log.info("Loading TRT engine: %s", engine_path)
@@ -346,13 +367,21 @@ def run_eval(
     for i in range(engine.num_io_tensors):
         context.set_tensor_address(engine.get_tensor_name(i), bindings[i])
 
-    # Print I/O info
-    log.info("Engine I/O tensors:")
+    # I/O names come from the plan: num_io_tensors + get_tensor_name(i) + get_tensor_mode (TensorRT 8+ API).
+    log.info("Engine I/O tensors (%d bindings):", engine.num_io_tensors)
     for i in range(engine.num_io_tensors):
         name = engine.get_tensor_name(i)
         shape = engine.get_tensor_shape(name)
         mode = "INPUT" if engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT else "OUTPUT"
         log.info("  %6s  %-15s  %s", mode, name, list(shape))
+
+    if inputs:
+        in_names = _input_tensor_names(engine)
+        log.info(
+            "Letterboxed image is fed to input %r (first input binding; %d input tensor(s) on engine).",
+            inputs[0].name,
+            len(in_names),
+        )
 
     input_shape = inputs[0].shape
     engine_img_size = input_shape[2]
@@ -360,16 +389,23 @@ def run_eval(
         log.info("Overriding img_size to %s (from engine)", engine_img_size)
         img_size = engine_img_size
 
-    out_names = _output_tensor_names(engine)
-    if output_format == "onnx_trt":
-        required = {"num_dets", "det_boxes", "det_scores", "det_classes"}
-        if not required <= out_names:
+    if output_format == "auto":
+        try:
+            if onnx_path:
+                output_format = infer_eval_output_format_from_onnx(onnx_path)
+                log.info("Auto output-format from ONNX %s → %s", onnx_path, output_format)
+            else:
+                output_format = infer_eval_output_format_from_trt_outputs(_trt_output_specs(engine))
+                log.info("Auto output-format from engine bindings → %s", output_format)
+        except ValueError as exc:
             raise ValueError(
-                f"output-format onnx_trt requires output tensors {sorted(required)}, "
-                f"found {sorted(out_names)}"
-            )
+                f"{exc} Use an explicit --output-format, or pass --onnx pointing to the "
+                "same graph used to build the engine."
+            ) from exc
+
+    out_names = _output_tensor_names(engine)
     single_tensor_name: str | None = None
-    if output_format in ("ultralytics", "deepstream_yolo"):
+    if output_format in ("ultralytics_e2e", "deepstream_yolo", "ultralytics_raw"):
         if not out_names:
             raise ValueError("Engine has no output tensors")
         if output_tensor is not None:
@@ -378,18 +414,29 @@ def run_eval(
                     f"--output-tensor {output_tensor!r} is not an output. Available: {sorted(out_names)}"
                 )
             single_tensor_name = output_tensor
-        elif len(out_names) == 1:
-            single_tensor_name = next(iter(out_names))
         else:
-            for cand in ("output0", "output", "output1"):
-                if cand in out_names:
-                    single_tensor_name = cand
-                    break
+            if onnx_path is not None:
+                inferred_out = infer_default_output_tensor_name_from_onnx(onnx_path)
+                if inferred_out is not None and inferred_out in out_names:
+                    single_tensor_name = inferred_out
+                    log.info("Auto output tensor from ONNX: %s", single_tensor_name)
+                else:
+                    single_tensor_name = None
+            else:
+                single_tensor_name = None
             if single_tensor_name is None:
-                raise ValueError(
-                    "Multiple output tensors; set --output-tensor to one of: "
-                    f"{sorted(out_names)}"
-                )
+                if len(out_names) == 1:
+                    single_tensor_name = next(iter(out_names))
+                else:
+                    for cand in ("output0", "output", "output1"):
+                        if cand in out_names:
+                            single_tensor_name = cand
+                            break
+                    if single_tensor_name is None:
+                        raise ValueError(
+                            "Multiple output tensors; set --output-tensor to one of: "
+                            f"{sorted(out_names)}"
+                        )
         log.info("Detection output tensor: %s", single_tensor_name)
 
     # Load COCO annotations
@@ -421,11 +468,9 @@ def run_eval(
         t_inf += time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        if output_format == "onnx_trt":
-            dets = postprocess_e2e(result, meta, conf_thres)
-        elif output_format == "ultralytics":
+        if output_format == "ultralytics_e2e":
             if single_tensor_name is None:
-                raise RuntimeError("internal: single_tensor_name unset for ultralytics")
+                raise RuntimeError("internal: single_tensor_name unset for ultralytics_e2e")
             dets = postprocess_single_tensor_xyxy(
                 result[single_tensor_name],
                 meta,
@@ -442,6 +487,15 @@ def run_eval(
                 conf_thres,
                 apply_nms=True,
                 iou_thres=iou_thres,
+            )
+        elif output_format == "ultralytics_raw":
+            if single_tensor_name is None:
+                raise RuntimeError("internal: single_tensor_name unset for ultralytics_raw")
+            dets = postprocess_ultralytics_raw(
+                result[single_tensor_name],
+                meta,
+                conf_thres,
+                iou_thres,
             )
         else:
             raise ValueError(f"Unknown output_format: {output_format!r}")
@@ -507,7 +561,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Evaluate TensorRT YOLO engines on COCO val2017 (mAP). "
-            "Choose --output-format to match how the engine exposes detections."
+            "Use --output-format auto (--onnx recommended) or ultralytics_e2e / ultralytics_raw / "
+            "deepstream_yolo (legacy alias: ultralytics → ultralytics_e2e)."
         )
     )
     parser.add_argument("--engine", type=str, required=True,
@@ -516,12 +571,29 @@ def main(argv: list[str] | None = None) -> int:
         "--output-format",
         type=str,
         required=True,
-        choices=("onnx_trt", "efficient_nms", "ultralytics", "deepstream_yolo"),
+        choices=(
+            "auto",
+            "ultralytics_e2e",
+            "ultralytics",
+            "ultralytics_raw",
+            "deepstream_yolo",
+        ),
         help=(
-            "onnx_trt: four tensors num_dets/det_* (levipereira/ultralytics format=onnx_trt; "
-            "not synonymous with the EfficientNMS plugin alone). efficient_nms: alias for onnx_trt. "
-            "ultralytics: single [B,N,6] tensor (post-NMS). "
-            "deepstream_yolo: single [B,num_anchors,6] (DeepStream-Yolo xyxy layout, NMS in eval)."
+            "auto: infer from --onnx (recommended) or engine I/O. "
+            "ultralytics_e2e: [B,N,6] with NMS in graph (alias: ultralytics). "
+            "ultralytics_raw: [B,4+nc,anchors] typical default ONNX (NMS in eval). "
+            "deepstream_yolo: [B,num_anchors,6] DeepStream-style (NMS in eval)."
+        ),
+    )
+    parser.add_argument(
+        "--onnx",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Optional ONNX path (same graph as the engine). With --output-format auto, used for "
+            "layout detection; if the ONNX has a single output, that name is used when picking "
+            "the detection tensor (must exist on the engine)."
         ),
     )
     parser.add_argument(
@@ -529,16 +601,16 @@ def main(argv: list[str] | None = None) -> int:
         type=str,
         default=None,
         help=(
-            "Output tensor name for ultralytics / deepstream_yolo (e.g. output0 or output). "
-            "If omitted and the engine has one output, that tensor is used; "
-            "if multiple outputs exist, defaults to output0, output, or output1 when present."
+            "Override detection output name. If omitted: with --onnx and one graph output, use "
+            "that name when present on the engine; else single engine output; else try "
+            "output0, output, output1."
         ),
     )
     parser.add_argument(
         "--iou-thres",
         type=float,
         default=0.45,
-        help="IoU threshold for per-class NMS (deepstream_yolo only).",
+        help="IoU threshold for per-class NMS (deepstream_yolo and ultralytics_raw).",
     )
     parser.add_argument("--images", type=str, default="data/coco/val2017",
                         help="Path to COCO val2017 images directory.")
@@ -565,10 +637,15 @@ def main(argv: list[str] | None = None) -> int:
     add_logging_arguments(parser)
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
 
+    onnx_err = None
+    if args.onnx is not None:
+        onnx_err = validate_readable_file(args.onnx, label="ONNX model")
+
     for err in (
         validate_readable_file(args.engine, label="TensorRT engine"),
         validate_existing_dir(args.images, label="Images directory"),
         validate_readable_file(args.annotations, label="COCO annotations"),
+        onnx_err,
     ):
         if err:
             print(err, file=sys.stderr)
@@ -593,7 +670,8 @@ def main(argv: list[str] | None = None) -> int:
             img_size=args.img_size,
             conf_thres=args.conf_thres,
             save_json=args.save_json,
-            output_format=normalize_eval_output_format(args.output_format),
+            output_format=args.output_format,
+            onnx_path=args.onnx,
             output_tensor=args.output_tensor,
             iou_thres=args.iou_thres,
             log=log,

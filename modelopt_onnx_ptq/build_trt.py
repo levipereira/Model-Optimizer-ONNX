@@ -17,6 +17,7 @@ from pathlib import Path
 
 from modelopt_onnx_ptq.io_checks import validate_readable_file
 from modelopt_onnx_ptq.logutil import add_logging_arguments, setup_logging
+from modelopt_onnx_ptq.onnx_eval_layout import infer_default_input_tensor_name_from_onnx
 from modelopt_onnx_ptq.session_paths import (
     default_build_trt_session_log,
     default_trt_engine_filename,
@@ -106,9 +107,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--input-name",
         type=str,
-        default="images",
+        default=None,
         metavar="NAME",
-        help="ONNX input tensor name used in --minShapes/--optShapes/--maxShapes (default: images).",
+        help=(
+            "ONNX input tensor name for --minShapes/--optShapes/--maxShapes. "
+            "If omitted, the name is inferred when the graph has exactly one input "
+            "(e.g. ``input`` for DeepStream-Yolo, ``images`` for many Ultralytics exports); "
+            "if inference fails, ``images`` is used. Override explicitly when needed."
+        ),
     )
     parser.add_argument(
         "--mode",
@@ -194,6 +200,20 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging("build_trt", log_file=log_path, verbose=args.verbose)
     log = logging.getLogger("build_trt")
 
+    input_name = args.input_name
+    if input_name is None:
+        inferred = infer_default_input_tensor_name_from_onnx(onnx_path)
+        if inferred is not None:
+            input_name = inferred
+            log.info("Auto input tensor name from ONNX: %s", input_name)
+        else:
+            input_name = "images"
+            log.warning(
+                "Could not infer a single ONNX input name; using %r for shape profile. "
+                "Pass --input-name if trtexec fails (e.g. PP-YOLOE uses ``image``).",
+                input_name,
+            )
+
     trtexec_bin = shutil.which("trtexec")
     if not trtexec_bin:
         log.error("trtexec not found in PATH. Use the TensorRT NGC container or install TensorRT tools.")
@@ -203,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
         onnx_path=onnx_path,
         engine_path=engine_path,
         timing_cache=timing_cache,
-        input_name=args.input_name,
+        input_name=input_name,
         img_size=args.img_size,
         batch=args.batch,
         mode=args.mode,

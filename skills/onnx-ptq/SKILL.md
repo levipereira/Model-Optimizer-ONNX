@@ -140,6 +140,8 @@ modelopt-onnx-ptq pipeline-e2e \
 
 This runs int8.entropy, int8.max, fp8.entropy, fp8.max, int4.awq_clip, int4.rtn_dq. Autotune is applied to the 4 int8/fp8 combos; the 2 int4 combos proceed without it (modelopt ignores the flag for int4).
 
+For **DeepStream-Yolo**–style single-tensor exports, add **`--output-format auto`** (and **`--input-name input`** if the graph uses `input`); **`pipeline-e2e`** passes **`--onnx`** into **eval-trt** for layout inference. Four-tensor **`num_dets`** / **`det_*`** engines are not supported by **eval-trt**.
+
 ### Mode and Method Reference
 
 | Mode | Methods | Autotune | Notes |

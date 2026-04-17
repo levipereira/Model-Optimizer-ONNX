@@ -2,7 +2,7 @@
 
 ## Easiest path: `pipeline-e2e`
 
-The simplest way to run everything is **`modelopt-onnx-ptq pipeline-e2e`**: it runs **calib** → **FP16 baseline** on the original ONNX (**`build-trt --mode fp16`** → **`eval-trt`** → **`trt-bench`**) → then **quantize** → **build-trt** → **eval-trt** → **trt-bench** for each quantization combo, and ends with **`report-runs`**, writing a **Markdown report** under `artifacts/pipeline_e2e/sessions/<session_id>/` (skip the report with `--no-report`). The FP16 step gives a **TensorRT FP16** reference row in the report (engine stem `<onnx-stem>.fp16`) so you can compare **FP16 vs int8/fp8/int4** in the same tables and charts. Use **`--no-fp16-baseline`** to skip that baseline. Pass **`--onnx`** and match **`--input-name`** / **`--output-format`** to your export; optional **`--autotune`**, **`--quant-matrix`**. See [CLI reference — pipeline-e2e](cli-reference.md#modelopt-onnx-ptq-pipeline-e2e).
+The simplest way to run everything is **`modelopt-onnx-ptq pipeline-e2e`**: it runs **calib** → **FP16 baseline** on the original ONNX (**`build-trt --mode fp16`** → **`eval-trt`** → **`trt-bench`**) → then **quantize** → **build-trt** → **eval-trt** → **trt-bench** for each quantization combo, and ends with **`report-runs`**, writing a **Markdown report** under `artifacts/pipeline_e2e/sessions/<session_id>/` (skip the report with `--no-report`). The FP16 step gives a **TensorRT FP16** reference row in the report (engine stem `<onnx-stem>.fp16`) so you can compare **FP16 vs int8/fp8/int4** in the same tables and charts. Use **`--no-fp16-baseline`** to skip that baseline. Pass **`--onnx`** and match **`--input-name`** / **`--output-format`** to your export. The default **`--output-format`** is **`auto`**, which forwards **`--onnx`** to each **eval-trt**. **`eval-trt`** only supports a **single** **`[B,N,6]`** detection tensor; four-tensor **`num_dets`** / **`det_*`** engines are not supported. Optional **`--autotune`**, **`--quant-matrix`**. See [CLI reference — pipeline-e2e](cli-reference.md#modelopt-onnx-ptq-pipeline-e2e).
 
 ### `pipeline-e2e` flow (graphical)
 
@@ -108,7 +108,7 @@ flowchart TD
 | 3 | **Calibration** — `modelopt-onnx-ptq calib` → `calib.npy` |
 | 4 | **PTQ** — `modelopt-onnx-ptq quantize` with `--calibration_data` (optional `--autotune`) |
 | 5 | **Engine** — `modelopt-onnx-ptq build-trt` (default `--mode strongly-typed` for PTQ ONNX; [CLI reference](cli-reference.md#modelopt-onnx-ptq-build-trt)) |
-| 6 | **Eval** — `modelopt-onnx-ptq eval-trt --output-format …` ([CLI reference](cli-reference.md#modelopt-onnx-ptq-eval-trt)) |
+| 6 | **Eval** — `modelopt-onnx-ptq eval-trt --output-format auto --onnx …` or explicit format ([CLI reference](cli-reference.md#modelopt-onnx-ptq-eval-trt)) |
 | 7 | **Bench** (optional but needed for QPS in the report) — `modelopt-onnx-ptq trt-bench --engine …` |
 | 8 | **Report** — `report-runs` on your `trt-bench` / `eval-trt` log directories, or **`report-runs --session-id <id>`** if you used `--session-id` on the steps above ([CLI reference](cli-reference.md#modelopt-onnx-ptq-report-runs)) |
 

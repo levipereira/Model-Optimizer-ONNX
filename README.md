@@ -78,7 +78,7 @@ flowchart TD
 Run **inside the container** (or locally after `pip install -e .`):
 
 - **One command (calib → FP16 baseline → PTQ combos → report):**  
-  `modelopt-onnx-ptq pipeline-e2e --onnx models/your.onnx` — add `--img-size`, `--input-name`, `--output-format` as needed; use **`--no-fp16-baseline`** only if you do not want the FP16 comparison row ([workflow](docs/workflow.md)).
+  `modelopt-onnx-ptq pipeline-e2e --onnx models/your.onnx` — add `--img-size`, `--input-name`, `--output-format` as needed (**`--output-format auto`** passes **`--onnx`** to **eval-trt** for layout inference); use **`--no-fp16-baseline`** only if you do not want the FP16 comparison row ([workflow](docs/workflow.md)).
 
 **Or step by step:**
 
@@ -88,7 +88,7 @@ Run **inside the container** (or locally after `pip install -e .`):
 4. `modelopt-onnx-ptq quantize --calibration_data artifacts/calibration/…npy --onnx_path models/your.onnx` (optional: `--autotune default`)
 5. **Optional FP16 reference:** `modelopt-onnx-ptq build-trt --onnx models/your.onnx --mode fp16` (default output `artifacts/trt_engine/<stem>.fp16.b<batch>_i<img>.engine`) then **`eval-trt`** / **`trt-bench`** on that engine (use **`SESSION_ID`** or **`--session-id`** on each command for a unified report).
 6. `modelopt-onnx-ptq build-trt --onnx artifacts/quantized/your…quant.onnx --img-size 640 --batch 1` → `artifacts/trt_engine/<stem>.b<batch>_i<img>.engine` (default `--mode strongly-typed`; see [docs](docs/cli-reference.md#modelopt-onnx-ptq-build-trt))
-7. `modelopt-onnx-ptq eval-trt --output-format onnx_trt --engine … --images data/coco/val2017 --annotations data/coco/annotations/instances_val2017.json` (pick `ultralytics` / `deepstream_yolo` if needed — table below)
+7. `modelopt-onnx-ptq eval-trt --output-format auto --onnx models/your.onnx --engine …` or set **`ultralytics`** / **`deepstream_yolo`** explicitly — table below
 8. `modelopt-onnx-ptq trt-bench --engine …` for throughput logs used by **`report-runs`**
 9. `modelopt-onnx-ptq report-runs` (with **`SESSION_ID`** set) **or** `--session-id` / `--trt-logs-dir` / `--eval-logs-dir` as needed
 
@@ -98,13 +98,13 @@ CLI details: [docs/cli-reference.md](docs/cli-reference.md) · optional docs sit
 
 ## Supported Output Formats
 
-The **PyTorch → ONNX** step defines tensor names, ranks, and post-processing semantics. **`--output-format`** in `eval-trt` must match that export (and the TensorRT build derived from it); the `.engine` layout alone is not enough if the underlying ONNX was produced differently. Flows discussed here assume ONNX exported with **`--dynamic`**, **`--simplify`**, and **`--opset` 18 or newer** (or equivalent flags in your exporter) so shapes and graphs stay consistent through PTQ and `trtexec`.
+The **PyTorch → ONNX** step defines tensor names, ranks, and post-processing semantics. **`eval-trt`** only supports a **single** detection tensor **`[B, N, 6]`** (see below). Use **`auto`** with **`--onnx`** to pick **`ultralytics`** vs **`deepstream_yolo`**. **Four-tensor** exports (`num_dets`, `det_*`) are **not** supported. Flows discussed here assume ONNX exported with **`--dynamic`**, **`--simplify`**, and **`--opset` 18 or newer** (or equivalent flags in your exporter) so shapes and graphs stay consistent through PTQ and `trtexec`.
 
-`modelopt-onnx-ptq eval-trt` scores a **TensorRT `.engine`** on COCO by decoding **how detections leave the network** for your stack. Pass **`--output-format`** accordingly. Full flags and shapes: [`docs/cli-reference.md`](docs/cli-reference.md).
+`modelopt-onnx-ptq eval-trt` scores a **TensorRT `.engine`** on COCO by decoding **how detections leave the network** for your stack. Pass **`--output-format`** (or **`auto`** + **`--onnx`**) accordingly. Full flags and shapes: [`docs/cli-reference.md`](docs/cli-reference.md).
 
 | `--output-format` | Typical source | Role |
 |-------------------|----------------|------|
-| **`onnx_trt`** | **[levipereira/ultralytics](https://github.com/levipereira/ultralytics)** — `format=onnx_trt` / `onnx_trt.py` (four fixed ONNX outputs; see that repo's detection table). This path is **not** the same as naming the graph "EfficientNMS": some heads are end-to-end in-network, others use EfficientNMS_TRT in the exporter — TensorRT still exposes `num_dets`, `det_boxes`, `det_scores`, `det_classes`. | Read the four tensors, take the first `num_dets` rows, filter by confidence, **undo letterbox**, COCO category mapping, **pycocotools** mAP. **`efficient_nms`** is accepted as an alias (legacy name). |
+| **`auto`** | *Not an exporter* — inference only. | With **`--onnx`**, selects **`ultralytics`** or **`deepstream_yolo`** for a **single** `[B,N,6]` output; without **`--onnx`**, uses engine tensor names/shapes. |
 | **`ultralytics`** | **[ultralytics/ultralytics](https://github.com/ultralytics/ultralytics)** TensorRT export with integrated NMS: a **single** output tensor (e.g. `output0`) shaped `[B, N, 6]` (e.g. `N = 300`). | Each row is **`x1, y1, x2, y2, score, class`** in **letterboxed input space** (NMS already applied in the graph). Filter by `--conf-thres`, letterbox inverse, COCO mapping, mAP. |
 | **`deepstream_yolo`** | **[marcoslucianops/DeepStream-Yolo](https://github.com/marcoslucianops/DeepStream-Yolo)** — engines aligned with the **DeepStream custom bbox parser** (`nvdsparsebbox_Yolo`): one output (often named `output`) `[B, num_anchors, 6]` (e.g. **8400** proposals at 640×640). | Same six fields as the parser (**xyxy + score + class**). In DeepStream, clustering/NMS runs in the pipeline; in **`eval-trt`** we apply **per-class NMS** in Python (`--iou-thres`), then letterbox inverse and mAP. |
 
