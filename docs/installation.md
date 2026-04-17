@@ -73,7 +73,7 @@ docker run --gpus all --rm -it \
 The image includes:
 
 - **NGC** [`nvcr.io/nvidia/tensorrt:26.02-py3`](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/tensorrt)
-- **`nvidia-modelopt[onnx]`** pinned from **NVIDIA PyPI** (default `0.43.0rc4`, overridable with `MODELOPT_VERSION` at build time; index `NVIDIA_PYPI_EXTRA_INDEX`, default `https://pypi.nvidia.com`)
+- **`nvidia-modelopt[onnx]`** pinned from **NVIDIA PyPI** (default `0.43.0`, overridable with `MODELOPT_VERSION` at build time; index `NVIDIA_PYPI_EXTRA_INDEX`, default `https://pypi.nvidia.com`)
 - **`modelopt-onnx-ptq`** via `pip install /workspace/modelopt-onnx-ptq`
 - **`onnxruntime-gpu`** reinstalled from the **CUDA 13** nightly index (PyPI ORT targets CUDA 12; the image ships CUDA 13)
 

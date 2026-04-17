@@ -118,7 +118,7 @@ The **PyTorch → ONNX** step defines tensor names, ranks, and post-processing s
 
 | Layer | Choice |
 |------|--------|
-| **Quantization** | `nvidia-modelopt[onnx]` (NVIDIA PyPI, pinned in the Dockerfile) |
+| **Quantization** | `nvidia-modelopt[onnx]` **0.43.0** (NVIDIA PyPI; default `MODELOPT_VERSION` in [`docker/Dockerfile`](docker/Dockerfile)) |
 | **Calibration** | ONNX Runtime **GPU** (CUDA **13** nightly, aligned with the image) |
 | **Engine** | **TensorRT** **26.02** (NGC `tensorrt:26.02-py3`) |
 | **License** | **Apache 2.0** — [LICENSE](LICENSE), [NOTICE](NOTICE) |

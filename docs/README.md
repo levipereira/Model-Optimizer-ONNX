@@ -31,7 +31,7 @@
 | **pycocotools** | COCO mAP evaluation |
 | **OpenCV / NumPy / PyTorch** | Image preprocessing and tensors |
 
-Pinned versions for the **recommended environment** match [`docker/Dockerfile`](../docker/Dockerfile): TensorRT **26.02** Python 3 image, Model Optimizer **`nvidia-modelopt[onnx]`** from **NVIDIA PyPI** (`MODELOPT_VERSION`, default `0.43.0rc4`), ORT from **ort-cuda-13-nightly**.
+Pinned versions for the **recommended environment** match [`docker/Dockerfile`](../docker/Dockerfile): TensorRT **26.02** Python 3 image, Model Optimizer **`nvidia-modelopt[onnx]`** from **NVIDIA PyPI** (`MODELOPT_VERSION`, default `0.43.0`), ORT from **ort-cuda-13-nightly**.
 
 ---
 

@@ -15,7 +15,7 @@ WORKDIR /workspace/modelopt-onnx-ptq
 # nvidia-modelopt from NVIDIA PyPI (needs --extra-index-url). `[onnx]` for PTQ / modelopt.onnx.quantization.
 # onnxruntime-gpu from PyPI targets CUDA 12; this image ships CUDA 13 — align ORT with the toolkit:
 # https://github.com/microsoft/onnxruntime/issues (ort-cuda-13-nightly)
-ARG MODELOPT_VERSION=0.43.0rc4
+ARG MODELOPT_VERSION=0.43.0
 ARG NVIDIA_PYPI_EXTRA_INDEX=https://pypi.nvidia.com
 ARG ORT_CUDA13_INDEX="https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/ort-cuda-13-nightly/pypi/simple/"
 

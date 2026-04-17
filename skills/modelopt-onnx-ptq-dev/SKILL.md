@@ -33,6 +33,8 @@ The sections below collect **maintainer conventions** for this repository. If a 
 
 ONNX post-training quantization (PTQ) pipeline for object-detection and vision ONNX models using **NVIDIA Model Optimizer** (`nvidia-modelopt[onnx]`), calibrated with COCO val2017 data, targeting TensorRT deployment.
 
+**Upstream pin:** [`docker/Dockerfile`](../docker/Dockerfile) installs **`nvidia-modelopt[onnx]==0.43.0`** from NVIDIA PyPI (`MODELOPT_VERSION`; override at `docker build --build-arg MODELOPT_VERSION=…`).
+
 **Repository layout**
 
 | Path | Purpose |

@@ -24,7 +24,7 @@ Set inside the Dockerfile for Model Optimizer compatibility with TensorRT images
 
 | Argument | Default | Purpose |
 |----------|---------|---------|
-| `MODELOPT_VERSION` | `0.43.0rc4` | Pin for `nvidia-modelopt[onnx]==…` from NVIDIA PyPI (`NVIDIA_PYPI_EXTRA_INDEX`) |
+| `MODELOPT_VERSION` | `0.43.0` | Pin for `nvidia-modelopt[onnx]==…` from NVIDIA PyPI (`NVIDIA_PYPI_EXTRA_INDEX`) |
 | `NVIDIA_PYPI_EXTRA_INDEX` | `https://pypi.nvidia.com` | `--extra-index-url` for `nvidia-modelopt` |
 | `ORT_CUDA13_INDEX` | Azure DevOps **ort-cuda-13-nightly** PyPI simple URL | Source for `onnxruntime-gpu` rebuild |
 | `TENSORRT_TREX_GIT_REF` | `release/10.15` | Git branch (or tag) for the shallow [NVIDIA/TensorRT](https://github.com/NVIDIA/TensorRT) clone used by TREx (TensorRT Engine Explorer) |

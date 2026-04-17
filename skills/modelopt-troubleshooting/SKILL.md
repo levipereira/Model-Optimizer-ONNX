@@ -76,7 +76,7 @@ export LD_LIBRARY_PATH="${CUDNN_LIB_DIR}:${LD_LIBRARY_PATH}"
 
 **Fix:**
 ```bash
-pip install -U "nvidia-modelopt[onnx]"
+pip install -U "nvidia-modelopt[onnx]==0.43.0" --extra-index-url https://pypi.nvidia.com
 ```
 
 ## Issue: Model > 2GB ValueError
@@ -155,7 +155,7 @@ Failed to parse onnx file
 - [ ] CUDA toolkit version matches ORT's build (check with ldd)
 - [ ] cuDNN libs in LD_LIBRARY_PATH
 - [ ] tensorrt Python package installed and >= 10.0
-- [ ] nvidia-modelopt[onnx] is latest version
+- [ ] nvidia-modelopt[onnx] matches the supported release (Docker default **0.43.0**); verify with `python -c "import modelopt; print(modelopt.__version__)"`
 - [ ] Calibration .npy shape matches model input
 - [ ] Docker container if possible (cleanest setup)
 ```

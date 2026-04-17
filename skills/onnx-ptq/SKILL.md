@@ -39,9 +39,11 @@ docker run --gpus all --rm -it -w /workspace/modelopt-onnx-ptq \
 
 **Local: ensure matching CUDA/ORT versions**
 
+The Docker image pins **`nvidia-modelopt[onnx]==0.43.0`** (NVIDIA PyPI). For local installs, match that pin when reproducing CI/Docker behavior:
+
 ```bash
 conda create -n modelopt python=3.12 pip && conda activate modelopt
-pip install -U "nvidia-modelopt[onnx]"
+pip install -U "nvidia-modelopt[onnx]==0.43.0" --extra-index-url https://pypi.nvidia.com
 export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}"
 ```
 
