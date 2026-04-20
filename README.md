@@ -1,11 +1,9 @@
 # Model-Optimizer-ONNX
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![modelopt-onnx-ptq](https://img.shields.io/static/v1?label=modelopt-onnx-ptq&message=v0.2.0&color=3775A9&logo=pypi&logoColor=white)](pyproject.toml)
+[![NVIDIA Model Optimizer](https://img.shields.io/badge/NVIDIA%20Model%20Optimizer-0.43-76B900?logo=nvidia&logoColor=white)](https://github.com/NVIDIA/Model-Optimizer)
 [![TensorRT](https://img.shields.io/badge/NGC%20TensorRT-26.02--py3-76B900?logo=nvidia&logoColor=white)](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/tensorrt)
-[![Model Optimizer](https://img.shields.io/badge/NVIDIA%20Model%20Optimizer-GitHub%20%7C%20onnx-76B900?logo=nvidia&logoColor=white)](https://github.com/NVIDIA/Model-Optimizer)
-[![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime%20GPU-CUDA%2013%20nightly-005CED?logo=onnx&logoColor=white)](https://onnxruntime.ai/)
-[![modelopt-onnx-ptq](https://img.shields.io/badge/modelopt--onnx-ptq-v0.1.0-3775A9?logo=pypi&logoColor=white)](pyproject.toml)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Context7](https://img.shields.io/badge/Context7-Docs-blue?logo=data:image/svg%2bxml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSIxMCIgZmlsbD0id2hpdGUiLz48dGV4dCB4PSI3IiB5PSIxNyIgZm9udC1zaXplPSIxNCIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtd2VpZ2h0PSJib2xkIiBmaWxsPSIjMjU2M0VCIj5DPC90ZXh0Pjwvc3ZnPg==)](https://context7.com/levipereira/model-optimizer-onnx)
 [![mAP, latency & PTQ settings](https://img.shields.io/badge/mAP%2C%20latency%20%26%20PTQ%20settings%20(ref)-in%20progress-F59E0B)](https://github.com/levipereira/Model-Optimizer-ONNX/discussions)
 
@@ -49,8 +47,6 @@ Export and training are **not** in this project — bring **`models/*.onnx`** fr
 Optional **TensorRT Engine Explorer** profiling (`env_trex`, **`trex-analyze`**, **`process_engine.py`**, notebooks) — **not** required for PTQ.
 
 ![TREx profiling workflow](docs/images/trex-workflow.png)
-
-Diagram sources: [`docs/images/`](docs/images/README.md).
 
 ---
 
