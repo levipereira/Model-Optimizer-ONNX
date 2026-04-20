@@ -81,7 +81,7 @@ The **PyTorch → ONNX** step defines tensor names, ranks, and post-processing s
 
 | `--output-format` | Typical source | Role |
 |-------------------|----------------|------|
-| **`auto`** | *Not an exporter* — inference only. | With **`--onnx`**, selects **`ultralytics`** or **`deepstream_yolo`** for a **single** `[B,N,6]` output; without **`--onnx`**, uses engine tensor names/shapes. |
+| **`auto`** | Auto Select | With **`--onnx`**, selects **`ultralytics`** or **`deepstream_yolo`** for a **single** `[B,N,6]` output; without **`--onnx`**, uses engine tensor names/shapes. |
 | **`ultralytics`** | **[ultralytics/ultralytics](https://github.com/ultralytics/ultralytics)** TensorRT export with integrated NMS: a **single** output tensor (e.g. `output0`) shaped `[B, N, 6]` (e.g. `N = 300`). | Each row is **`x1, y1, x2, y2, score, class`** in **letterboxed input space** (NMS already applied in the graph). Filter by `--conf-thres`, letterbox inverse, COCO mapping, mAP. |
 | **`deepstream_yolo`** | **[marcoslucianops/DeepStream-Yolo](https://github.com/marcoslucianops/DeepStream-Yolo)** — engines aligned with the **DeepStream custom bbox parser** (`nvdsparsebbox_Yolo`): one output (often named `output`) `[B, num_anchors, 6]` (e.g. **8400** proposals at 640×640). | Same six fields as the parser (**xyxy + score + class**). In DeepStream, clustering/NMS runs in the pipeline; in **`eval-trt`** we apply **per-class NMS** in Python (`--iou-thres`), then letterbox inverse and mAP. |
 
