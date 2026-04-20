@@ -50,6 +50,67 @@ Optional **TensorRT Engine Explorer** profiling (`env_trex`, **`trex-analyze`**,
 
 ---
 
+
+## Getting Started
+
+### Prerequisites
+
+You need a **machine with an NVIDIA GPU** and software on the host so containers can use CUDA / TensorRT:
+
+| Requirement | Notes |
+|-------------|--------|
+| **NVIDIA GPU** | A CUDA-capable graphics card (e.g. GeForce / RTX / datacenter GPU). |
+| **NVIDIA driver** | Installed on the host; `nvidia-smi` should work **before** you use Docker. |
+| **Docker** | [Docker Engine](https://docs.docker.com/engine/install/) installed and running. |
+| **NVIDIA Container Toolkit** | Lets `docker run --gpus all` pass the GPU into the container. [Install guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html). |
+
+Verify the driver with `nvidia-smi` on the host. After installing the toolkit, follow NVIDIA's guide to confirm GPU access from Docker (e.g. run `nvidia-smi` inside a test container).
+
+### Run with Docker (default)
+
+The **`modelopt-onnx-ptq`** package is **installed inside the image** at build time. You do **not** need to mount the Git repository to run — only bind-mount three folders on the host so ONNX, datasets, and outputs persist when the container stops.
+
+#### 1. Build the image (needs the Dockerfile)
+
+Clone once (or copy the `docker/` context elsewhere) and build:
+
+```bash
+git clone https://github.com/levipereira/Model-Optimizer-ONNX.git
+cd Model-Optimizer-ONNX
+docker build -f docker/Dockerfile -t modelopt-onnx-ptq .
+```
+
+#### 2. Run with `models/`, `data/`, and `artifacts/` on the host
+
+Pick a root directory on the host (any path you like) and create the three subfolders:
+
+```bash
+export DATA_ROOT="$HOME/modelopt-onnx-ptq"
+mkdir -p "$DATA_ROOT/models" "$DATA_ROOT/data" "$DATA_ROOT/artifacts"
+
+docker run --gpus all --rm -it \
+  -w /workspace/modelopt-onnx-ptq \
+  -v "$DATA_ROOT/models:/workspace/modelopt-onnx-ptq/models" \
+  -v "$DATA_ROOT/data:/workspace/modelopt-onnx-ptq/data" \
+  -v "$DATA_ROOT/artifacts:/workspace/modelopt-onnx-ptq/artifacts" \
+  modelopt-onnx-ptq
+```
+
+Inside the container, the working directory is **`/workspace/modelopt-onnx-ptq`**. Use the same **relative** paths as in the docs: `models/...`, `data/coco/...`, `artifacts/...` — they map to `$DATA_ROOT` on the host.
+
+#### Host ↔ container mapping
+
+| Host | Container |
+|------|-----------|
+| `$DATA_ROOT/models` | `/workspace/modelopt-onnx-ptq/models` |
+| `$DATA_ROOT/data` | `/workspace/modelopt-onnx-ptq/data` |
+| `$DATA_ROOT/artifacts` | `/workspace/modelopt-onnx-ptq/artifacts` |
+
+Change `DATA_ROOT` to another disk or folder if you want.
+
+See [docs/docker-reference.md](docs/docker-reference.md) for build args and persistence details.
+
+--- 
 ## Quick Steps
 
 Run **inside the container** (or locally after `pip install -e .`):
@@ -118,65 +179,6 @@ This repository **supports AI coding agents**—IDE assistants, agent-style CLI 
 All Agent Skills for this project are maintained under **`skills/`**.
 
 ---
-
-## Getting Started
-
-### Prerequisites
-
-You need a **machine with an NVIDIA GPU** and software on the host so containers can use CUDA / TensorRT:
-
-| Requirement | Notes |
-|-------------|--------|
-| **NVIDIA GPU** | A CUDA-capable graphics card (e.g. GeForce / RTX / datacenter GPU). |
-| **NVIDIA driver** | Installed on the host; `nvidia-smi` should work **before** you use Docker. |
-| **Docker** | [Docker Engine](https://docs.docker.com/engine/install/) installed and running. |
-| **NVIDIA Container Toolkit** | Lets `docker run --gpus all` pass the GPU into the container. [Install guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html). |
-
-Verify the driver with `nvidia-smi` on the host. After installing the toolkit, follow NVIDIA's guide to confirm GPU access from Docker (e.g. run `nvidia-smi` inside a test container).
-
-### Run with Docker (default)
-
-The **`modelopt-onnx-ptq`** package is **installed inside the image** at build time. You do **not** need to mount the Git repository to run — only bind-mount three folders on the host so ONNX, datasets, and outputs persist when the container stops.
-
-#### 1. Build the image (needs the Dockerfile)
-
-Clone once (or copy the `docker/` context elsewhere) and build:
-
-```bash
-git clone https://github.com/levipereira/Model-Optimizer-ONNX.git
-cd Model-Optimizer-ONNX
-docker build -f docker/Dockerfile -t modelopt-onnx-ptq .
-```
-
-#### 2. Run with `models/`, `data/`, and `artifacts/` on the host
-
-Pick a root directory on the host (any path you like) and create the three subfolders:
-
-```bash
-export DATA_ROOT="$HOME/modelopt-onnx-ptq"
-mkdir -p "$DATA_ROOT/models" "$DATA_ROOT/data" "$DATA_ROOT/artifacts"
-
-docker run --gpus all --rm -it \
-  -w /workspace/modelopt-onnx-ptq \
-  -v "$DATA_ROOT/models:/workspace/modelopt-onnx-ptq/models" \
-  -v "$DATA_ROOT/data:/workspace/modelopt-onnx-ptq/data" \
-  -v "$DATA_ROOT/artifacts:/workspace/modelopt-onnx-ptq/artifacts" \
-  modelopt-onnx-ptq
-```
-
-Inside the container, the working directory is **`/workspace/modelopt-onnx-ptq`**. Use the same **relative** paths as in the docs: `models/...`, `data/coco/...`, `artifacts/...` — they map to `$DATA_ROOT` on the host.
-
-#### Host ↔ container mapping
-
-| Host | Container |
-|------|-----------|
-| `$DATA_ROOT/models` | `/workspace/modelopt-onnx-ptq/models` |
-| `$DATA_ROOT/data` | `/workspace/modelopt-onnx-ptq/data` |
-| `$DATA_ROOT/artifacts` | `/workspace/modelopt-onnx-ptq/artifacts` |
-
-Change `DATA_ROOT` to another disk or folder if you want.
-
-See [docs/docker-reference.md](docs/docker-reference.md) for build args and persistence details.
 
 #### TensorRT Engine Explorer (TREx) — model profiling (optional)
 
