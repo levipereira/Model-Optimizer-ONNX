@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 
 from tqdm import tqdm
 
-from model_opt_yolo.logutil import add_logging_arguments, setup_logging
+from modelopt_onnx_ptq.logutil import add_logging_arguments, setup_logging
 
 VAL_ZIP_URL = "http://images.cocodataset.org/zips/val2017.zip"
 ANN_ZIP_URL = "http://images.cocodataset.org/annotations/annotations_trainval2017.zip"
@@ -39,7 +39,7 @@ def _download_wget(url: str, dest: Path) -> None:
 
 def _download_urllib(url: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
-    req = Request(url, headers={"User-Agent": "model-opt-yolo/1.0"})
+    req = Request(url, headers={"User-Agent": "modelopt-onnx-ptq/1.0"})
     with urlopen(req) as resp:
         total = int(resp.headers.get("Content-Length") or 0)
         with open(dest, "wb") as f, tqdm(
@@ -78,7 +78,7 @@ def extract_zip(zip_path: Path, out_dir: Path, log: logging.Logger) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="model-opt-yolo download-coco",
+        prog="modelopt-onnx-ptq download-coco",
         description="Download COCO val2017 images and 2017 annotations (instances_val2017.json).",
     )
     parser.add_argument(

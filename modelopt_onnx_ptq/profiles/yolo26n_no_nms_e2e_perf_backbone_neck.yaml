@@ -1,0 +1,35 @@
+# =============================================================================
+# YOLO26n — backbone + neck Convs (hpfp16 via CLI: --high_precision_dtype fp16)
+# =============================================================================
+# Index split for models/yolo26n_no_nms_e2e.onnx (102 Conv nodes: stem +
+# node_conv2d_1 … node_conv2d_101), aligned with yolo26n_no_nms_e2e_perf:
+#   backbone: stem + _1 … _39
+#   neck:     _40 … _75   (PAN/FPN region; approximate by node name)
+# Head Convs (_76 … _101) stay higher precision unless you use the “full” profile.
+#
+# Use: modelopt-onnx-ptq quantize ... --profile yolo26n_no_nms_e2e_perf_backbone_neck \\
+#        --high_precision_dtype fp16 --suffix .bn.quant.onnx
+# =============================================================================
+
+version: 1
+
+name: yolo26n_no_nms_e2e_perf_backbone_neck
+
+description: >
+  Whitelist stem + node_conv2d_1 … node_conv2d_75 (backbone + neck); same SiLU/Sigmoid/Softmax excludes as perf.
+
+defaults:
+  autotune: null
+
+modelopt:
+  include_nodes:
+    - "^node_conv2d(?:_([1-9]|[1-5][0-9]|6[0-9]|7[0-5]))?$"
+
+  exclude_op_types:
+    - Sigmoid
+    - Softmax
+
+  exclude_nodes:
+    - "^node_silu(_[0-9]+)?$"
+
+  extra_args: []

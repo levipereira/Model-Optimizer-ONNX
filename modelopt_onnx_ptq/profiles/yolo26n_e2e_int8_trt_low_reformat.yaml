@@ -1,0 +1,111 @@
+# =============================================================================
+# YOLO26n e2e (Ultralytics-style graph) — INT8 regional: backbone + neck Convs
+# =============================================================================
+# For ``yolo26n_e2e.onnx`` where Conv nodes are named ``/model.*/.../conv/Conv``
+# (not ``node_conv2d_*``). ``include_nodes`` lists the first 76 Conv nodes in
+# **topological order** (same intent as ``node_conv2d`` … ``_75`` on named exports).
+#
+# See ``yolo26n_no_nms_e2e_int8_trt_low_reformat.yaml`` for the single-regex
+# profile used with ``node_conv2d``-style ONNX (e.g. yolo26n_dyolo.onnx).
+#
+# Requires: pip install pyyaml
+# =============================================================================
+
+version: 1
+
+name: yolo26n_e2e_int8_trt_low_reformat
+
+description: >
+  Ultralytics /model…/conv/Conv whitelist (76 Convs, topo order); Sigmoid/Softmax
+  excluded; autotune default.
+
+defaults:
+  autotune: default
+
+modelopt:
+  include_nodes:
+    - "^/model\\.0/conv/Conv$"
+    - "^/model\\.1/conv/Conv$"
+    - "^/model\\.2/cv1/conv/Conv$"
+    - "^/model\\.2/m\\.0/cv1/conv/Conv$"
+    - "^/model\\.2/m\\.0/cv2/conv/Conv$"
+    - "^/model\\.2/cv2/conv/Conv$"
+    - "^/model\\.3/conv/Conv$"
+    - "^/model\\.4/cv1/conv/Conv$"
+    - "^/model\\.4/m\\.0/cv1/conv/Conv$"
+    - "^/model\\.4/m\\.0/cv2/conv/Conv$"
+    - "^/model\\.4/cv2/conv/Conv$"
+    - "^/model\\.5/conv/Conv$"
+    - "^/model\\.6/cv1/conv/Conv$"
+    - "^/model\\.6/m\\.0/cv1/conv/Conv$"
+    - "^/model\\.6/m\\.0/cv2/conv/Conv$"
+    - "^/model\\.6/m\\.0/m/m\\.0/cv1/conv/Conv$"
+    - "^/model\\.6/m\\.0/m/m\\.0/cv2/conv/Conv$"
+    - "^/model\\.6/m\\.0/m/m\\.1/cv1/conv/Conv$"
+    - "^/model\\.6/m\\.0/m/m\\.1/cv2/conv/Conv$"
+    - "^/model\\.6/m\\.0/cv3/conv/Conv$"
+    - "^/model\\.6/cv2/conv/Conv$"
+    - "^/model\\.7/conv/Conv$"
+    - "^/model\\.8/cv1/conv/Conv$"
+    - "^/model\\.8/m\\.0/cv1/conv/Conv$"
+    - "^/model\\.8/m\\.0/cv2/conv/Conv$"
+    - "^/model\\.8/m\\.0/m/m\\.0/cv1/conv/Conv$"
+    - "^/model\\.8/m\\.0/m/m\\.0/cv2/conv/Conv$"
+    - "^/model\\.8/m\\.0/m/m\\.1/cv1/conv/Conv$"
+    - "^/model\\.8/m\\.0/m/m\\.1/cv2/conv/Conv$"
+    - "^/model\\.8/m\\.0/cv3/conv/Conv$"
+    - "^/model\\.8/cv2/conv/Conv$"
+    - "^/model\\.9/cv1/conv/Conv$"
+    - "^/model\\.9/cv2/conv/Conv$"
+    - "^/model\\.10/cv1/conv/Conv$"
+    - "^/model\\.10/m/m\\.0/attn/qkv/conv/Conv$"
+    - "^/model\\.10/m/m\\.0/attn/pe/conv/Conv$"
+    - "^/model\\.10/m/m\\.0/attn/proj/conv/Conv$"
+    - "^/model\\.10/m/m\\.0/ffn/ffn\\.0/conv/Conv$"
+    - "^/model\\.10/m/m\\.0/ffn/ffn\\.1/conv/Conv$"
+    - "^/model\\.10/cv2/conv/Conv$"
+    - "^/model\\.13/cv1/conv/Conv$"
+    - "^/model\\.13/m\\.0/cv1/conv/Conv$"
+    - "^/model\\.13/m\\.0/cv2/conv/Conv$"
+    - "^/model\\.13/m\\.0/m/m\\.0/cv1/conv/Conv$"
+    - "^/model\\.13/m\\.0/m/m\\.0/cv2/conv/Conv$"
+    - "^/model\\.13/m\\.0/m/m\\.1/cv1/conv/Conv$"
+    - "^/model\\.13/m\\.0/m/m\\.1/cv2/conv/Conv$"
+    - "^/model\\.13/m\\.0/cv3/conv/Conv$"
+    - "^/model\\.13/cv2/conv/Conv$"
+    - "^/model\\.16/cv1/conv/Conv$"
+    - "^/model\\.16/m\\.0/cv1/conv/Conv$"
+    - "^/model\\.16/m\\.0/cv2/conv/Conv$"
+    - "^/model\\.16/m\\.0/m/m\\.0/cv1/conv/Conv$"
+    - "^/model\\.16/m\\.0/m/m\\.0/cv2/conv/Conv$"
+    - "^/model\\.16/m\\.0/m/m\\.1/cv1/conv/Conv$"
+    - "^/model\\.16/m\\.0/m/m\\.1/cv2/conv/Conv$"
+    - "^/model\\.16/m\\.0/cv3/conv/Conv$"
+    - "^/model\\.16/cv2/conv/Conv$"
+    - "^/model\\.17/conv/Conv$"
+    - "^/model\\.23/one2one_cv2\\.0/one2one_cv2\\.0\\.0/conv/Conv$"
+    - "^/model\\.23/one2one_cv3\\.0/one2one_cv3\\.0\\.0/one2one_cv3\\.0\\.0\\.0/conv/Conv$"
+    - "^/model\\.23/one2one_cv2\\.0/one2one_cv2\\.0\\.1/conv/Conv$"
+    - "^/model\\.23/one2one_cv3\\.0/one2one_cv3\\.0\\.0/one2one_cv3\\.0\\.0\\.1/conv/Conv$"
+    - "^/model\\.19/cv1/conv/Conv$"
+    - "^/model\\.23/one2one_cv2\\.0/one2one_cv2\\.0\\.2/Conv$"
+    - "^/model\\.23/one2one_cv3\\.0/one2one_cv3\\.0\\.1/one2one_cv3\\.0\\.1\\.0/conv/Conv$"
+    - "^/model\\.19/m\\.0/cv1/conv/Conv$"
+    - "^/model\\.19/m\\.0/cv2/conv/Conv$"
+    - "^/model\\.23/one2one_cv3\\.0/one2one_cv3\\.0\\.1/one2one_cv3\\.0\\.1\\.1/conv/Conv$"
+    - "^/model\\.19/m\\.0/m/m\\.0/cv1/conv/Conv$"
+    - "^/model\\.23/one2one_cv3\\.0/one2one_cv3\\.0\\.2/Conv$"
+    - "^/model\\.19/m\\.0/m/m\\.0/cv2/conv/Conv$"
+    - "^/model\\.19/m\\.0/m/m\\.1/cv1/conv/Conv$"
+    - "^/model\\.19/m\\.0/m/m\\.1/cv2/conv/Conv$"
+    - "^/model\\.19/m\\.0/cv3/conv/Conv$"
+    - "^/model\\.19/cv2/conv/Conv$"
+
+  exclude_op_types:
+    - Sigmoid
+    - Softmax
+
+  exclude_nodes:
+    - "^.+/act/Mul$"
+
+  extra_args: []

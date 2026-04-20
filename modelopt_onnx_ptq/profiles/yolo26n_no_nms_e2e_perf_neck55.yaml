@@ -1,0 +1,34 @@
+# =============================================================================
+# YOLO26n — variant: backbone + early neck Convs (through node_conv2d_55)
+# =============================================================================
+# Compare against yolo26n_no_nms_e2e_perf (stops at _39) using the same
+# calib + trt-bench / eval-trt. Wider int8 coverage may improve throughput or
+# add reformats at PAN boundaries — measure, do not assume.
+#
+# Use: modelopt-onnx-ptq quantize ... --profile yolo26n_no_nms_e2e_perf_neck55
+#      Optional: --suffix .neck55.quant.onnx to keep ONNX variants separate.
+# =============================================================================
+
+version: 1
+
+name: yolo26n_no_nms_e2e_perf_neck55
+
+description: >
+  Whitelist stem + node_conv2d_1 … node_conv2d_55 (neck partial); same SiLU/Sigmoid/Softmax excludes as perf.
+
+defaults:
+  autotune: null
+
+modelopt:
+  include_nodes:
+    # stem + _1.._9 + _10.._29 + _30.._39 + _40.._49 + _50.._55
+    - "^node_conv2d(?:_([1-9]|[12][0-9]|[34][0-9]|5[0-5]))?$"
+
+  exclude_op_types:
+    - Sigmoid
+    - Softmax
+
+  exclude_nodes:
+    - "^node_silu(_[0-9]+)?$"
+
+  extra_args: []

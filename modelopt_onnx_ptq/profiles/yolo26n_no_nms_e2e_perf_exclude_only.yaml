@@ -1,0 +1,33 @@
+# =============================================================================
+# YOLO26n — variant: blacklist-only (no include_nodes whitelist)
+# =============================================================================
+# Lets Model Optimizer choose int8 candidates across the graph, excluding only
+# activations that usually hurt PTQ/fusion (SiLU path, Sigmoid, Softmax) and
+# structural ops that often regress accuracy or fusion (Resize, Concat).
+# Compare mAP + trt-bench vs backbone-only whitelist profiles.
+#
+# Use: modelopt-onnx-ptq quantize ... --profile yolo26n_no_nms_e2e_perf_exclude_only
+#      Optional: --suffix .exconly.quant.onnx
+# =============================================================================
+
+version: 1
+
+name: yolo26n_no_nms_e2e_perf_exclude_only
+
+description: >
+  No whitelist; exclude Sigmoid/Softmax/Resize/Concat and SiLU Mul nodes by name.
+
+defaults:
+  autotune: null
+
+modelopt:
+  exclude_op_types:
+    - Sigmoid
+    - Softmax
+    - Resize
+    - Concat
+
+  exclude_nodes:
+    - "^node_silu(_[0-9]+)?$"
+
+  extra_args: []

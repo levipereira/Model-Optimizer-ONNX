@@ -1,0 +1,57 @@
+# =============================================================================
+# YOLO26n — INT8 regional: backbone + neck (TRT-oriented, fewer Q/DQ boundaries)
+# =============================================================================
+# Motivation (TensorRT engine profiling on yolo26n_no_e2e vs full-graph int8):
+#   Full-model PTQ inserts Q/DQ across the entire network. TensorRT then spends
+#   a large fraction of time in "Reformatting CopyNode" (often ~2× vs FP16) and
+#   extra kgen glue around residual Adds, Concats, and attention — net latency can
+#   regress despite faster Conv/gemm.
+#
+# This profile widens the whitelist vs yolo26n_no_nms_e2e_backbone (stops at _39):
+#   stem + node_conv2d_1 … node_conv2d_75 = backbone + PAN/neck Convs (same split
+#   as yolo26n_no_nms_e2e_perf_backbone_neck). A contiguous int8 region reduces
+#   internal FP16↔INT8 transitions through the FPN compared to backbone-only, while
+#   still leaving the detection head (_76 … _101) in higher precision.
+#
+# Integrated autotune (defaults below) asks Model Optimizer to benchmark Q/DQ
+# placement for TensorRT — use unless you need fastest PTQ iteration.
+#
+# ONNX node names MUST use the repo’s ``node_conv2d`` / ``node_silu`` convention
+# (e.g. models/yolo26n_dyolo.onnx or exports described in docs). Raw Ultralytics
+# graphs use ``/model.*/conv/Conv`` names — no ``node_conv2d_*`` matches → the
+# whitelist is empty and quantization fails. For that export use:
+#   yolo26n_e2e_int8_trt_low_reformat
+#
+# Use:
+#   model-opt-yolo quantize ... --profile yolo26n_no_nms_e2e_int8_trt_low_reformat \\
+#     --high_precision_dtype fp16 --suffix .bn.lr8.quant.onnx
+#
+# Compare latency vs:
+#   - yolo26n_no_nms_e2e_backbone (narrower whitelist)
+#   - yolo26n_no_nms_e2e_perf_neck55 (stops at _55 if full neck regresses)
+# Requires: pip install pyyaml
+# =============================================================================
+
+version: 1
+
+name: yolo26n_no_nms_e2e_int8_trt_low_reformat
+
+description: >
+  Backbone + neck Conv whitelist (_75); SiLU/Sigmoid/Softmax excludes; autotune
+  default for TRT-friendly Q/DQ placement.
+
+defaults:
+  autotune: default
+
+modelopt:
+  include_nodes:
+    - "^node_conv2d(?:_([1-9]|[1-5][0-9]|6[0-9]|7[0-5]))?$"
+
+  exclude_op_types:
+    - Sigmoid
+    - Softmax
+
+  exclude_nodes:
+    - "^node_silu(_[0-9]+)?$"
+
+  extra_args: []

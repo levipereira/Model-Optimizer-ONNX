@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Run ``trtexec`` to build a TensorRT engine from ONNX (quantized or FP)."""
+"""Run ``trtexec`` to build a TensorRT engine from ONNX (quantized or FP).
+
+``--mode``: ``strongly-typed`` (default), ``best``, ``fp16``, or ``fp16-int8``.
+For **quantized / PTQ** ONNX, ``strongly-typed`` (``--stronglyTyped``) matches Q/DQ
+types; use ``best`` or ``fp16`` mainly for non-quantized exports. Benchmark with ``trt-bench``.
+"""
 
 from __future__ import annotations
 
@@ -10,8 +15,16 @@ import subprocess
 import sys
 from pathlib import Path
 
-from model_opt_yolo.logutil import add_logging_arguments, setup_logging
-from model_opt_yolo.session_paths import default_build_trt_session_log, run_timestamp, trt_engine_dir
+from modelopt_onnx_ptq.io_checks import validate_readable_file
+from modelopt_onnx_ptq.logutil import add_logging_arguments, setup_logging
+from modelopt_onnx_ptq.onnx_eval_layout import infer_default_input_tensor_name_from_onnx
+from modelopt_onnx_ptq.session_paths import (
+    default_build_trt_session_log,
+    default_trt_engine_filename,
+    effective_session_id,
+    run_timestamp,
+    trt_engine_dir,
+)
 
 
 def _shape(batch: int, img_size: int) -> str:
@@ -27,8 +40,6 @@ def build_trtexec_argv(
     img_size: int,
     batch: int,
     mode: str,
-    warm_up: int,
-    duration: int,
     extra: list[str],
 ) -> list[str]:
     """Base ``trtexec`` argument list; *extra* is appended last for overrides."""
@@ -36,37 +47,29 @@ def build_trtexec_argv(
     eng_s = str(engine_path.resolve())
     cache_s = str(timing_cache.resolve())
 
+    shp = _shape(batch, img_size)
+    head = [
+        "--onnx=" + onnx_s,
+        "--saveEngine=" + eng_s,
+    ]
     if mode == "strongly-typed":
-        shp = _shape(batch, img_size)
-        base = [
-            "--onnx=" + onnx_s,
-            "--saveEngine=" + eng_s,
-            "--stronglyTyped",
-            f"--minShapes={input_name}:{shp}",
-            f"--optShapes={input_name}:{shp}",
-            f"--maxShapes={input_name}:{shp}",
-            "--timingCacheFile=" + cache_s,
-        ]
-    elif mode == "benchmark":
-        min_shp = _shape(1, img_size)
-        bm_shp = _shape(batch, img_size)
-        base = [
-            "--onnx=" + onnx_s,
-            "--fp16",
-            "--int8",
-            "--saveEngine=" + eng_s,
-            "--timingCacheFile=" + cache_s,
-            f"--warmUp={warm_up}",
-            f"--duration={duration}",
-            "--useCudaGraph",
-            "--useSpinWait",
-            "--noDataTransfers",
-            f"--minShapes={input_name}:{min_shp}",
-            f"--optShapes={input_name}:{bm_shp}",
-            f"--maxShapes={input_name}:{bm_shp}",
-        ]
+        precision = ["--stronglyTyped"]
+    elif mode == "best":
+        precision = ["--best"]
+    elif mode == "fp16":
+        precision = ["--fp16"]
+    elif mode == "fp16-int8":
+        precision = ["--fp16", "--int8"]
     else:
         raise ValueError(f"unknown mode: {mode!r}")
+
+    tail = [
+        f"--minShapes={input_name}:{shp}",
+        f"--optShapes={input_name}:{shp}",
+        f"--maxShapes={input_name}:{shp}",
+        "--timingCacheFile=" + cache_s,
+    ]
+    base = [*head, *precision, *tail]
 
     return ["trtexec", *base, *extra]
 
@@ -75,8 +78,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Build a TensorRT .engine from ONNX via trtexec. "
-            "Default mode uses --stronglyTyped for Q/DQ models from Model Optimizer; "
-            "benchmark mode adds --fp16/--int8 and latency flags for throughput measurement."
+            "Modes: strongly-typed (default), best, fp16, fp16-int8 — default strongly-typed for PTQ/quantized ONNX. "
+            "Benchmark: modelopt-onnx-ptq trt-bench --engine PATH. "
+            "Append extra trtexec args after -- for overrides."
         )
     )
     parser.add_argument(
@@ -98,39 +102,31 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=1,
         metavar="B",
-        help="Batch dimension for opt/max shapes (strongly-typed: min/opt/max all use B). "
-        "For benchmark mode, min batch is fixed to 1.",
+        help="Batch dimension for min/opt/max shapes (all modes use the same profile).",
     )
     parser.add_argument(
         "--input-name",
         type=str,
-        default="images",
+        default=None,
         metavar="NAME",
-        help="ONNX input tensor name used in --minShapes/--optShapes/--maxShapes (default: images).",
+        help=(
+            "ONNX input tensor name for --minShapes/--optShapes/--maxShapes. "
+            "If omitted, the name is inferred when the graph has exactly one input "
+            "(e.g. ``input`` for DeepStream-Yolo, ``images`` for many Ultralytics exports); "
+            "if inference fails, ``images`` is used. Override explicitly when needed."
+        ),
     )
     parser.add_argument(
         "--mode",
         type=str,
-        choices=("strongly-typed", "benchmark"),
+        choices=("best", "strongly-typed", "fp16", "fp16-int8"),
         default="strongly-typed",
         help=(
-            "strongly-typed: --stronglyTyped + same min/opt/max shape (default, matches Q/DQ ONNX). "
-            "benchmark: --fp16 --int8 + warmup/duration/spin/CUDA graph + min batch 1."
+            "strongly-typed (default): --stronglyTyped; use for quantized PTQ ONNX (Q/DQ). "
+            "best: --best (often better for non-quantized FP graphs). "
+            "fp16: --fp16 (typ. non-quantized ONNX). fp16-int8: --fp16 --int8. Same min/opt/max shape. "
+            "Trailing args after -- are forwarded to trtexec."
         ),
-    )
-    parser.add_argument(
-        "--warm-up",
-        type=int,
-        default=500,
-        metavar="N",
-        help="[benchmark] trtexec --warmUp (default: 500).",
-    )
-    parser.add_argument(
-        "--duration",
-        type=int,
-        default=10,
-        metavar="SEC",
-        help="[benchmark] trtexec --duration in seconds (default: 10).",
     )
     parser.add_argument(
         "--engine-out",
@@ -138,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         metavar="PATH",
         help=(
-            "Output .engine path (default: <artifacts>/trt_engine/<onnx-stem>.engine; "
+            "Output .engine path (default: <artifacts>/trt_engine/<onnx-stem>.b<batch>_i<img-size>.engine; "
             "artifacts root is cwd/artifacts or MODELOPT_ARTIFACTS_ROOT)."
         ),
     )
@@ -148,6 +144,18 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         metavar="PATH",
         help="Timing cache path (default: <engine>.timing.cache).",
+    )
+    parser.add_argument(
+        "--session-id",
+        type=str,
+        default=None,
+        metavar="ID",
+        help=(
+            "Optional pipeline session id: when set (and --log-file is omitted), "
+            "logs go under artifacts/pipeline_e2e/sessions/<id>/trt_engine/logs/. "
+            "If omitted, the SESSION_ID environment variable is used when set. "
+            "``report-runs --session-id`` or SESSION_ID picks up the same logs."
+        ),
     )
     parser.add_argument(
         "passthrough",
@@ -164,16 +172,19 @@ def main(argv: list[str] | None = None) -> int:
             pt = pt[1:]
         extra.extend(pt)
 
-    onnx_path = Path(args.onnx)
-    if not onnx_path.is_file():
-        print(f"Error: ONNX file not found: {onnx_path}", file=sys.stderr)
+    err = validate_readable_file(args.onnx, label="ONNX model")
+    if err:
+        print(err, file=sys.stderr)
         return 1
+    onnx_path = Path(args.onnx).expanduser().resolve()
 
     stem = onnx_path.stem
     if args.engine_out:
         engine_path = Path(args.engine_out)
     else:
-        engine_path = trt_engine_dir() / f"{stem}.engine"
+        engine_path = trt_engine_dir() / default_trt_engine_filename(
+            onnx_stem=stem, batch=args.batch, img_size=args.img_size
+        )
     if args.timing_cache:
         timing_cache = Path(args.timing_cache)
     else:
@@ -182,11 +193,26 @@ def main(argv: list[str] | None = None) -> int:
 
     ts = run_timestamp()
     log_path = args.log_file
+    sid = effective_session_id(args.session_id)
     if log_path is None:
-        log_path = str(default_build_trt_session_log(onnx_stem=stem, ts=ts))
+        log_path = str(default_build_trt_session_log(onnx_stem=stem, ts=ts, session_id=sid))
 
     setup_logging("build_trt", log_file=log_path, verbose=args.verbose)
     log = logging.getLogger("build_trt")
+
+    input_name = args.input_name
+    if input_name is None:
+        inferred = infer_default_input_tensor_name_from_onnx(onnx_path)
+        if inferred is not None:
+            input_name = inferred
+            log.info("Auto input tensor name from ONNX: %s", input_name)
+        else:
+            input_name = "images"
+            log.warning(
+                "Could not infer a single ONNX input name; using %r for shape profile. "
+                "Pass --input-name if trtexec fails (e.g. PP-YOLOE uses ``image``).",
+                input_name,
+            )
 
     trtexec_bin = shutil.which("trtexec")
     if not trtexec_bin:
@@ -197,12 +223,10 @@ def main(argv: list[str] | None = None) -> int:
         onnx_path=onnx_path,
         engine_path=engine_path,
         timing_cache=timing_cache,
-        input_name=args.input_name,
+        input_name=input_name,
         img_size=args.img_size,
         batch=args.batch,
         mode=args.mode,
-        warm_up=args.warm_up,
-        duration=args.duration,
         extra=extra,
     )
     # Use resolved trtexec path

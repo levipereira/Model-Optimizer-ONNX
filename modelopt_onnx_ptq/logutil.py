@@ -1,0 +1,124 @@
+"""Shared logging setup for Model Optimizer ONNX tools.
+
+Environment variables (optional):
+
+- ``MODELOPT_ONNX_PTQ_LOGLEVEL`` or ``LOGLEVEL``: ``DEBUG``, ``INFO``, ``WARNING``, ``ERROR`` (default: INFO).
+- ``MODELOPT_ONNX_LOGLEVEL``: **deprecated** — same effect; emits a one-time warning (prefer ``MODELOPT_ONNX_PTQ_LOGLEVEL``).
+- ``MODELOPT_YOLO_LOGLEVEL``: **deprecated** — same effect; emits a one-time warning.
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import os
+import sys
+import warnings
+from pathlib import Path
+
+_WARNED_LEGACY_ONNX = False
+_WARNED_LEGACY_YOLO = False
+
+
+def _parse_level(name: str | None) -> int:
+    if not name:
+        return logging.INFO
+    name = name.strip().upper()
+    return getattr(logging, name, logging.INFO)
+
+
+def _console_level_from_env() -> int:
+    global _WARNED_LEGACY_ONNX, _WARNED_LEGACY_YOLO
+    for key in ("MODELOPT_ONNX_PTQ_LOGLEVEL", "LOGLEVEL"):
+        raw = os.environ.get(key)
+        if raw:
+            return _parse_level(raw)
+    raw = os.environ.get("MODELOPT_ONNX_LOGLEVEL")
+    if raw:
+        if not _WARNED_LEGACY_ONNX:
+            _WARNED_LEGACY_ONNX = True
+            warnings.warn(
+                "MODELOPT_ONNX_LOGLEVEL is deprecated; use MODELOPT_ONNX_PTQ_LOGLEVEL",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        return _parse_level(raw)
+    raw = os.environ.get("MODELOPT_YOLO_LOGLEVEL")
+    if raw:
+        if not _WARNED_LEGACY_YOLO:
+            _WARNED_LEGACY_YOLO = True
+            warnings.warn(
+                "MODELOPT_YOLO_LOGLEVEL is deprecated; use MODELOPT_ONNX_PTQ_LOGLEVEL",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        return _parse_level(raw)
+    return logging.INFO
+
+
+def setup_logging(
+    name: str,
+    *,
+    log_file: str | Path | None = None,
+    level: int | None = None,
+    verbose: bool = False,
+) -> logging.Logger:
+    """Attach stderr and optional file handlers to logger *name*."""
+    logger = logging.getLogger(name)
+    # ``pipeline-e2e`` calls ``eval_trt`` / ``build_trt`` / ``trt-bench`` / ``quantize`` ``main()``
+    # many times in one process. Without resetting, the first ``--log-file`` wins and later runs
+    # append to the same file or skip the file handler entirely (early return).
+    if logger.handlers:
+        for h in list(logger.handlers):
+            logger.removeHandler(h)
+            try:
+                h.close()
+            except Exception:
+                pass
+
+    if verbose:
+        console_level = logging.DEBUG
+    elif level is not None:
+        console_level = level if isinstance(level, int) else _parse_level(str(level))
+    else:
+        console_level = _console_level_from_env()
+
+    fmt = logging.Formatter(
+        "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    sh = logging.StreamHandler(sys.stderr)
+    sh.setLevel(console_level)
+    sh.setFormatter(fmt)
+
+    logger.setLevel(logging.DEBUG if log_file else console_level)
+    logger.addHandler(sh)
+
+    if log_file:
+        path = Path(log_file)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fh = logging.FileHandler(path, encoding="utf-8", mode="w")
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(fmt)
+        logger.addHandler(fh)
+
+    logger.propagate = False
+    return logger
+
+
+def add_logging_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--log-file",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="Write session log to this file (UTF-8). If omitted, a unique path under "
+        "artifacts/.../logs/ is used. Console: INFO unless -v.",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Log DEBUG on stderr (and file if --log-file).",
+    )

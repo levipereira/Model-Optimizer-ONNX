@@ -1,0 +1,173 @@
+# =============================================================================
+# Profile template — modelopt-onnx-ptq quantize --profile <this_file.yaml>
+# =============================================================================
+# Copy this file, edit values, and pass --profile with the path.
+#
+# ``defaults`` section: only ``autotune`` is applied by the wrapper when you do NOT
+# pass ``--autotune`` on the CLI. int8/fp8/int4 mode, calibration method, calibration
+# file, and ONNX/output paths are still set by ``modelopt-onnx-ptq quantize`` (or
+# pipeline-e2e).
+#
+# ``modelopt`` section: options mapped to ``python -m modelopt.onnx.quantization``.
+# The same keys may be placed at the YAML root (shortcuts).
+#
+# Upstream reference: ``python -m modelopt.onnx.quantization --help``
+# =============================================================================
+
+version: 1
+
+# Human-readable name (logs / documentation only).
+name: ultralytics_yolo26_flexible
+
+# Free text (not read by the program).
+description: >
+  Template for Ultralytics exports (node names /model.N/...). Adjust empty lists
+  or use extra_args for advanced Model Optimizer flags.
+
+# -----------------------------------------------------------------------------
+# defaults — integration with ``modelopt-onnx-ptq quantize`` CLI
+# -----------------------------------------------------------------------------
+# autotune: used ONLY if you omit ``--autotune`` on the command line.
+# Values: null | false | quick | default | extensive | true (same as quick)
+# -----------------------------------------------------------------------------
+defaults:
+  autotune: null
+
+# -----------------------------------------------------------------------------
+# modelopt — options supported natively by the profile loader
+# -----------------------------------------------------------------------------
+modelopt:
+
+  # --- ONNX node types (whitelist) ---
+  # If non-empty: only these types are candidates for Q/DQ.
+  # Accepted YAML synonyms: include_op_types | op_types_to_quantize
+  include_op_types: []
+  # Example:
+  # include_op_types: [Conv, Gemm, MatMul]
+
+  # --- Node types excluded from quantization (blacklist by op_type) ---
+  # Synonyms: exclude_op_types | op_types_to_exclude
+  exclude_op_types: []
+  # Example:
+  # exclude_op_types: [MatMul, Resize]
+
+  # --- Exclude these op types from FP16/BF16 conversion (when high_precision_dtype is fp16/bf16) ---
+  op_types_to_exclude_fp16: []
+  # Example:
+  # op_types_to_exclude_fp16: [Resize, Concat]
+
+  # --- Node names (regex; re.match on the full node name) ---
+  # Synonyms: include_nodes | nodes_to_quantize
+  include_nodes: []
+  # Synonyms: exclude_nodes | nodes_to_exclude
+  exclude_nodes: []
+  # Ultralytics example (one2one head under model.23):
+  # exclude_nodes:
+  #   - "/model\\.23/.*"
+
+  # --- Booleans (only take effect when true) ---
+  simplify: false
+  calibrate_per_node: false
+  direct_io_types: false
+  use_external_data_format: false
+  disable_mha_qdq: false
+
+  # --- Pattern file for autotune ---
+  # Model Optimizer matches each line with fnmatch() on the FULL node name (shell
+  # wildcards * ? [seq]), not Python regex. Blank lines and # comments in that
+  # file are ignored. A region is autotuned only if it contains at least one node
+  # that matches any pattern (regions with no match are skipped).
+  # Paths are relative to THIS YAML file.
+  autotune_node_filter_list: null
+  # Packaged example (copy or edit next to this profile):
+  # autotune_node_filter_list: filters/example_autotune_node_filter.txt
+  #
+  # Equivalent inline example (save as e.g. filters/my_filter.txt):
+  #   # fnmatch patterns, one per line
+  #   */model.0/*
+  #   */model.1/*
+  #   */model.2/*
+  #   # … add */model.N/* up to the last stage you want the autotuner to visit
+  #   # To avoid the typical Ultralytics detection head, omit */model.23/*
+  #   # Broader fnmatch shortcuts (single char in [] — tune to your naming):
+  #   # */model.[0-9]/*     → model.0 … model.9 only
+  #   # */model.1[0-9]/*    → model.10 … model.19
+  #   # */model.2[0-2]/*    → model.20 … model.22
+
+  # --- Any other Model Optimizer flag: argv token list ---
+  # Each entry is ONE argument (like the shell). Use multiple entries for
+  # flags with values: ["--opset", "20"]
+  extra_args: []
+
+  # … or uncomment examples (single token list):
+  # extra_args:
+  #   - "--calibration_eps"
+  #   - "cpu"
+  #   - "cuda:0"
+  #   - "--override_shapes"
+  #   - "images:1x3x640x640"
+  #   - "--passes"
+  #   - "concat_elimination"
+  #   - "--opset"
+  #   - "20"
+  #   - "--log_level"
+  #   - "INFO"
+  #   - "--keep_intermediate_files"
+  #   - "--trust_calibration_data"
+  #   - "--dq_only"
+  #   - "--mha_accumulation_dtype"
+  #   - "fp16"
+  #   - "--trt_plugins"
+  #   - "/path/to/plugin.so"
+  #   - "--high_precision_dtype"
+  #   - "fp32"
+  #   - "--autotune_output_dir"
+  #   - "/tmp/autotune_out"
+  #   - "--autotune_schemes_per_region"
+  #   - "50"
+  #   - "--autotune_pattern_cache"
+  #   - "/path/to/cache.yaml"
+  #   - "--autotune_qdq_baseline"
+  #   - "/path/to/baseline_qdq.onnx"
+  #   - "--autotune_state_file"
+  #   - "/path/to/state.yaml"
+  #   - "--autotune_verbose"
+  #   - "--autotune_use_trtexec"
+  #   - "--autotune_timing_cache"
+  #   - "/path/to/timing.cache"
+  #   - "--autotune_warmup_runs"
+  #   - "50"
+  #   - "--autotune_timing_runs"
+  #   - "100"
+  #   - "--autotune_trtexec_args"
+  #   - "--fp16 --workspace=4096"
+
+# =============================================================================
+# Root-level shortcuts (optional)
+# =============================================================================
+# You may repeat any ``modelopt`` key at the root; the loader treats it as an
+# alias. Example:
+#
+# exclude_op_types: [MatMul]
+#
+# =============================================================================
+# Quick map: YAML key → modelopt flag (when supported under ``modelopt``)
+# =============================================================================
+# include_op_types          → --op_types_to_quantize  <types...>
+# exclude_op_types          → --op_types_to_exclude   <types...>
+# op_types_to_exclude_fp16  → --op_types_to_exclude_fp16 <types...>
+# include_nodes             → --nodes_to_quantize     <regex...>
+# exclude_nodes             → --nodes_to_exclude       <regex...>
+# simplify                  → --simplify
+# calibrate_per_node        → --calibrate_per_node
+# direct_io_types           → --direct_io_types
+# use_external_data_format  → --use_external_data_format
+# disable_mha_qdq           → --disable_mha_qdq
+# autotune_node_filter_list → --autotune_node_filter_list=<path>
+# extra_args                → additional tokens in order
+# =============================================================================
+# Not covered by the profile (always on ``quantize`` CLI or after ``--``):
+# --onnx_path, --calibration_data_path (via --calibration_data), --output_path
+# (via --output_dir + suffix), --quantize_mode, --calibration_method,
+# --high_precision_dtype, --autotune (optional; overrides defaults.autotune)
+# =============================================================================

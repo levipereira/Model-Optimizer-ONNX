@@ -1,0 +1,18 @@
+# Autotune node filter (Model Optimizer): one fnmatch pattern per line.
+# Blank lines and lines starting with # are ignored.
+# Matching is fnmatch on the FULL node name (shell wildcards * ? [seq]), not Python regex.
+# A graph region is profiled only if at least one node in the region matches any pattern.
+#
+# Ultralytics-style names look like: /model.0/conv/Conv
+# Expand or trim stage globs to match your ONNX (inspect names in Netron).
+
+*/model.0/*
+*/model.1/*
+*/model.2/*
+*/model.3/*
+*/model.4/*
+*/model.5/*
+*/model.6/*
+*/model.7/*
+*/model.8/*
+*/model.9/*

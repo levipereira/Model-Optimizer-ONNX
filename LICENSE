@@ -1,4 +1,4 @@
-Model-Optimizer-YOLO (model-opt-yolo)
+Model-Optimizer-ONNX (modelopt-onnx-ptq)
 Copyright (c) 2026 Levi Pereira <levi.pereira@gmail.com>
 
 Licensed under the Apache License, Version 2.0 (the "License");
