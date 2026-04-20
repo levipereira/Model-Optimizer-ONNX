@@ -88,7 +88,7 @@ Pick a root directory on the host (any path you like) and create the three subfo
 export DATA_ROOT="$HOME/modelopt-onnx-ptq"
 mkdir -p "$DATA_ROOT/models" "$DATA_ROOT/data" "$DATA_ROOT/artifacts"
 
-docker run --gpus all --rm -it \
+docker run --gpus all --rm -it --network host\
   -w /workspace/modelopt-onnx-ptq \
   -v "$DATA_ROOT/models:/workspace/modelopt-onnx-ptq/models" \
   -v "$DATA_ROOT/data:/workspace/modelopt-onnx-ptq/data" \
