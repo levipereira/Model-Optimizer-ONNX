@@ -10,6 +10,8 @@ description: >-
 
 # Model Optimizer Troubleshooting
 
+**Baseline:** Prefer the repo **`docker/Dockerfile`** (`nvcr.io/nvidia/tensorrt:26.02-py3`, **`nvidia-modelopt[onnx]==0.43.0`**, ORT CUDA 13 nightly as pinned there) to avoid host CUDA/ORT skew. **`modelopt-onnx-ptq --help`** lists all commands; subcommand **`--help`** for flags.
+
 ## Diagnostic Commands
 
 Run these first to understand the environment:

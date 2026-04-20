@@ -12,18 +12,18 @@ description: >-
 
 # PTQ + TensorRT performance (modelopt-onnx-ptq)
 
-**ONNX I/O / eval layout:** For removing **`--output-format`**, renaming **`--input-name`** → **`--input-tensor`**, ONNX defaults for **`input_tensor`** / **`output-tensor`**, and supported shapes, see **[onnx-eval-io-autodetect](onnx-eval-io-autodetect/SKILL.md)**.
+**ONNX I/O / eval layout:** **`--output-format auto`** (with **`--onnx`**) is implemented; optional **`--output-tensor`** override; planned rename **`--input-name`** → **`--input-tensor`** on pipeline/build steps — see **[onnx-eval-io-autodetect](../onnx-eval-io-autodetect/SKILL.md)**.
 
 ## Goal
 
-Produce **comparable** numbers: same calibration tensor shapes, same `build-trt` input tensor name / image size, same `eval-trt` dataset and **matching detection decode** (today: `--output-format`; planned: ONNX-driven auto-detection per **onnx-eval-io-autodetect**), then compare **mAP** (accuracy) and **trt-bench** (throughput / GPU latency).
+Produce **comparable** numbers: same calibration tensor shapes, same **`build-trt`** profile (**`--input-name`** / img-size / batch on **`pipeline-e2e`**), same **`eval-trt`** dataset, and **matching detection decode**. Use **`--output-format auto`** plus **`--onnx`** so layout matches the graph (or pass explicit **`ultralytics_e2e`**, **`ultralytics_raw`**, **`deepstream_yolo`**). Then compare **mAP** (**eval-trt**) and **QPS / latency** (**trt-bench**).
 
 ## Prerequisites
 
 - ONNX under `models/` (or pass absolute path).
-- COCO **val2017** images + `instances_val2017.json` (or adjust `--images-dir` / `--annotations`).
-- Match **`--input-tensor`** (or legacy **`--input-name`**) to the graph (e.g. Ultralytics often `images`; some exports `input`). If omitted, infer from ONNX (**onnx-eval-io-autodetect**).
-- Match **output layout** for **`eval-trt`** — use **`--output-tensor`** when needed; ONNX auto-detection replaces a required **`--output-format`** once implemented (**onnx-eval-io-autodetect**).
+- COCO **val2017** images + `instances_val2017.json` (or adjust **`--images-dir`** / **`--annotations`**).
+- **`pipeline-e2e`**: set **`--input-name`** when the ONNX input name is not the single-input default (else **build-trt** infers it; default fallback name **`images`** if ambiguous — see **`pipeline-e2e --help`**).
+- **`eval-trt`**: pass **`--output-format auto`** and **`--onnx`** (recommended), or a fixed format; optional **`--output-tensor`** if multiple outputs — see **onnx-eval-io-autodetect**.
 - **FP8** PTQ needs a GPU with **compute capability ≥ 8.9** (e.g. RTX 4090).
 
 ## Path A — Full mode/method grid (`pipeline-e2e`)
@@ -35,7 +35,7 @@ Use **`modelopt-onnx-ptq pipeline-e2e`** when the user wants to compare **int8 /
    - **`int8.all`** → two int8 runs; combine with commas as needed (see `docs/workflow.md`).
 2. Optional: **`--quantize-profile <name>`** — same YAML profile for **every** quantize step (e.g. a YOLO26n backbone whitelist under `modelopt_onnx_ptq/profiles/`).
 3. **`--high-precision-dtype`** defaults to **fp16** in **`quantize`** / **`pipeline-e2e`**; use **fp32** only if PTQ shape inference fails. Omit **`--autotune`** if the user wants profile-only tuning.
-4. Set **`--input-name`** / **`--input-tensor`** (when renamed) to match the graph, **`--build-mode`** (default `strongly-typed` for PTQ ONNX). For **eval**, default **`--output-format auto`** on **`pipeline-e2e`** forwards **`--onnx`** and infers **`ultralytics`** vs **`deepstream_yolo`** (**onnx-eval-io-autodetect**). Four-tensor detection outputs are not supported.
+4. Set **`--input-name`** when needed for **build-trt** profile shapes, and **`--build-mode`** (default **`strongly-typed`** for PTQ ONNX). **`pipeline-e2e`** defaults **`--output-format`** to **`auto`** and passes **`--onnx`** into **eval-trt** so **`onnx_eval_layout`** can pick **`ultralytics_e2e`**, **`ultralytics_raw`**, or **`deepstream_yolo`**. Four-tensor **`num_dets`** / **`det_*`** outputs are not supported.
 5. Use **`--session-id my_run`** so all logs sit under `artifacts/pipeline_e2e/sessions/<id>/`.
 6. If a combo fails, **`--continue-on-error`** keeps the rest.
 7. **`--no-fp16-baseline`** skips the extra FP16 engine on the **original** ONNX (saves one full eval if only PTQ rows matter).
@@ -105,9 +105,71 @@ Some graphs fail **`build-trt --mode strongly-typed`** on mixed int8/FP16 bounda
 
 ## Path C — Iterative YAML profile tuning
 
-When latency regresses or **Reformat** dominates in profiling:
+When latency regresses or **Reformat** dominates in profiling, pick **one** profiling path (they can be combined across iterations: e.g. CLI for exports, then notebooks for drill-down).
 
-1. Run **`trex-analyze`** (and optionally **`--compare`** vs FP16 plan) — see `docs/quantization-performance-workflow.md`.
+### TREx profiling — three valid methods
+
+**1) Project CLI (automates `trtexec` + JSON + optional graph/compare)**  
+
+```text
+modelopt-onnx-ptq trex-analyze …
+```
+
+At most **one** of **`--compare`**, **`--graph`**, **`--report`**, or none (layer/timing JSON only). Typical: compare quantized vs FP16 ONNX, or emit a plan graph. Outputs under **`artifacts/trex/runs/…`** (or **`artifacts/pipeline_e2e/sessions/<id>/trex/…`** with **`--session-id`**). Details: **`docs/cli-reference.md`**, **`docs/quantization-performance-workflow.md`**.
+
+**2) TREx virtualenv + Jupyter (`tutorial.ipynb` / `compare_engines.ipynb`)**  
+
+TREx (**`trex`**) lives in a **dedicated venv**, separate from **`modelopt-onnx-ptq`** (avoids **pandas** / **numpy** clashes). Default layout in the Docker image:
+
+```bash
+source /workspace/TREx/tools/experimental/trt-engine-explorer/env_trex/bin/activate
+# Optional: export TREX_VENV=/workspace/TREx/tools/experimental/trt-engine-explorer/env_trex
+cd /workspace/TREx/tools/experimental/trt-engine-explorer/notebooks
+jupyter lab   # or: jupyter notebook
+```
+
+Upstream notebooks (same paths relative to **`notebooks/`**):
+
+| Notebook | Role |
+|----------|------|
+| **`tutorial.ipynb`** | **Section 1** — runs **`../utils/process_engine.py`** to **build** the engine from ONNX, **profile** it, and emit **`.graph.json`**, **`.profile.json`**, timing JSON, and an **SVG** plan. Use the **initial `trtexec` parameters** below so results match **`build-trt --mode strongly-typed`** + **`images`** @ 640². |
+| **`compare_engines.ipynb`** | Loads **two** **`EnginePlan`** instances (e.g. FP16/FP32 vs INT8 PTQ). Set **`engine_name_1`** / **`engine_name_2`** to **`.engine`** paths whose JSON sidecars sit beside them (typically **`../tests/inputs/`** after **`tutorial.ipynb`**, or copy/symlink engines from **`modelopt-onnx-ptq/artifacts/trt_engine/`** / **`…/pipeline_e2e/sessions/…/trt_engine/`**). |
+
+**Initial `process_engine.py` parameters (YOLO PTQ ONNX — matches repo `build-trt`)**  
+
+Run **from `notebooks/`** so **`../utils/process_engine.py`** resolves. Positional args: **`ONNX`**, **`outdir`**, then the **`trtexec`** passthrough list (**`nargs='*'`** in **`utils/process_engine.py`**). Put **`--`** **after** **`stronglyTyped`** and **before** **`minShapes=…`** (same as **`tutorial.ipynb`**). That **`--`** is the **bypass for `trtexec`**: it tells **`argparse`** to stop treating what follows as **`process_engine.py`** flags so **`minShapes=…`**, **`optShapes=…`**, **`maxShapes=…`** are collected as **`trtexec`** tokens and forwarded into the **`trtexec`** subprocess (the script then turns each token into a **`trtexec`** flag via **`append_trtexec_args`**). The bare **`--`** itself is **not** passed to **`trtexec`**.
+
+```bash
+# Example: quantized ONNX from a pipeline_e2e session; outputs under ../tests/inputs/
+python3 ../utils/process_engine.py \
+  /workspace/modelopt-onnx-ptq/artifacts/pipeline_e2e/sessions/yolo26n_no_e2e/quantized/yolo26n_no_e2e.int8.entropy.quant.onnx \
+  ../tests/inputs \
+  stronglyTyped -- minShapes=images:1x3x640x640 optShapes=images:1x3x640x640 maxShapes=images:1x3x640x640
+```
+
+**Jupyter** cell (matches **`tutorial.ipynb`** — note **`--`** after **`stronglyTyped`**):
+
+```text
+!python3 ../utils/process_engine.py /workspace/modelopt-onnx-ptq/artifacts/pipeline_e2e/sessions/yolo26n_no_e2e/quantized/yolo26n_no_e2e.int8.entropy.quant.onnx ../tests/inputs stronglyTyped  -- minShapes=images:1x3x640x640 optShapes=images:1x3x640x640 maxShapes=images:1x3x640x640
+```
+
+This produces **`trtexec`** lines of the form **`--stronglyTyped --minShapes=images:1x3x640x640 --optShapes=… --maxShapes=…`** for both **build** and **profile** (as in **`tutorial.ipynb`** output). If your ONNX input tensor is not **`images`**, replace **`images:`** with the actual name (e.g. **`input:1x3x640x640`** for many DeepStream exports).
+
+**3) TREx CLI / scripts without Jupyter**  
+
+With the same venv **activated**, you can run **`process_engine.py`** from a terminal (command above) or other flows under:
+
+```text
+/workspace/TREx/tools/experimental/trt-engine-explorer/
+```
+
+See upstream **`bin/`**, **`utils/`**, and **README** for CSV/HTML utilities. **`process_engine.py`** is the same entry **`tutorial.ipynb`** section 1 uses.
+
+**Note:** **`trex-analyze`** prepends **`$TREX_VENV`**’s **`site-packages`** so **`import trex`** works from the image Python; if **`trex`** is still missing, it **re-executes** with the venv interpreter — see **`docs/docker-reference.md`** (TREx section).
+
+### Iteration loop
+
+1. **Profile** using **(1)** and/or **(2)** and/or **(3)** above until you know which layers or regions to change.
 2. Adjust **`include_nodes`** / **`exclude_nodes`** / **`exclude_op_types`** in a **copy** of a shipped profile under `modelopt_onnx_ptq/profiles/`.
 3. Re-run Path B (or a smaller **`--quant-matrix`** slice).
 
@@ -120,5 +182,6 @@ If **`build-trt --mode strongly-typed`** fails with an internal error on a fused
 ## Related docs
 
 - `docs/quantization-performance-workflow.md` — iterative loop, profiles, hpfp16 notes.
+- `docs/docker-reference.md` — **TREx** (`TREX_VENV`, **`env_trex`**, **`install.sh --venv --full`**).
 - `docs/workflow.md` — **`--quant-matrix`** grammar, **`pipeline-e2e`** flow.
-- `docs/cli-reference.md` — flags for **`quantize`**, **`build-trt`**, **`eval-trt`**, **`pipeline-e2e`**, **`report-runs`**.
+- `docs/cli-reference.md` — flags for **`quantize`**, **`build-trt`**, **`eval-trt`**, **`pipeline-e2e`**, **`report-runs`**, **`trex-analyze`**.

@@ -2,13 +2,30 @@
 name: onnx-ptq
 description: >-
   Run ONNX post-training quantization (PTQ) using NVIDIA Model Optimizer.
-  Covers calibration data prep, int8/fp8/int4 quantization, execution provider
-  setup, and TensorRT deployment. Use when the user mentions ONNX quantization,
-  PTQ, calibration, Model Optimizer, modelopt, int8, fp8, int4, TensorRT,
-  modelopt-onnx-ptq quantize, or modelopt-onnx-ptq.
+  Covers download-coco, calibration data prep, int8/fp8/int4 quantization,
+  execution provider setup, pipeline-e2e, and TensorRT build-trt. Use when the
+  user mentions ONNX quantization, PTQ, calibration, Model Optimizer, modelopt,
+  int8, fp8, int4, TensorRT, or modelopt-onnx-ptq commands (calib, quantize,
+  build-trt, pipeline-e2e).
 ---
 
 # ONNX Post-Training Quantization (PTQ)
+
+## CLI index (`modelopt-onnx-ptq`)
+
+| Command | Purpose |
+|---------|---------|
+| `download-coco` | Download COCO val2017 + annotations (default under `data/coco` or `--output-dir`). |
+| `calib` | Build calibration `.npy` from image folders. |
+| `quantize` | Model Optimizer ONNX PTQ; `--autotune` presets: `quick`, `default`, `extensive` (int8/fp8 Q/DQ tuning). |
+| `build-trt` | TensorRT engine from ONNX; `--mode`: `strongly-typed`, `best`, `fp16`, `fp16-int8`. |
+| `trt-bench` | `trtexec` throughput/latency on an existing `.engine` (no rebuild). |
+| `eval-trt` | COCO mAP on engines; `--output-format` including `auto` (see **onnx-eval-io-autodetect**). |
+| `report-runs` | Aggregate bench/eval logs → Markdown report; `--session-id` scopes `pipeline_e2e/sessions/…`. |
+| `pipeline-e2e` | Calib → optional FP16 baseline → quantize → build-trt → eval-trt → trt-bench → report. |
+| `trex-analyze` | TREx / trtexec profiling (`--compare`, `--graph`, or `--report`; needs TREx venv). |
+
+Discover examples: `modelopt-onnx-ptq --help` and `modelopt-onnx-ptq <command> --help`.
 
 ## Workflow Overview
 
@@ -65,10 +82,18 @@ for inp in model.graph.input:
     print(inp.name, [d.dim_value or d.dim_param for d in inp.type.tensor_type.shape.dim])
 ```
 
-## Step 3: Build Calibration Data
+## Step 3: Dataset and calibration data
+
+**COCO val2017 (optional helper):**
 
 ```bash
 pip install -e .   # once: installs the `modelopt-onnx-ptq` command
+modelopt-onnx-ptq download-coco --output-dir data/coco
+```
+
+**Build calibration tensors:**
+
+```bash
 modelopt-onnx-ptq calib \
   --images_dir=data/coco/val2017 \
   --calibration_data_size=500 \
@@ -140,7 +165,7 @@ modelopt-onnx-ptq pipeline-e2e \
 
 This runs int8.entropy, int8.max, fp8.entropy, fp8.max, int4.awq_clip, int4.rtn_dq. Autotune is applied to the 4 int8/fp8 combos; the 2 int4 combos proceed without it (modelopt ignores the flag for int4).
 
-For **DeepStream-Yolo**–style single-tensor exports, add **`--output-format auto`** (and **`--input-name input`** if the graph uses `input`); **`pipeline-e2e`** passes **`--onnx`** into **eval-trt** for layout inference. Four-tensor **`num_dets`** / **`det_*`** engines are not supported by **eval-trt**.
+For **`pipeline-e2e`**, prefer **`--output-format auto`** (default) so **eval-trt** infers **`ultralytics_e2e`**, **`ultralytics_raw`**, or **`deepstream_yolo`** from the ONNX (see **onnx-eval-io-autodetect**). Set **`--input-name`** if the ONNX input tensor is not the single-input default inferred by **build-trt**. Four-tensor **`num_dets`** / **`det_*`** graphs are **not** supported by **eval-trt**.
 
 ### Mode and Method Reference
 
@@ -167,7 +192,7 @@ For **DeepStream-Yolo**–style single-tensor exports, add **`--output-format au
 | `--use_external_data_format` | Required for models > 2GB |
 | `--simplify` | Runs onnxsim before quantization |
 | `--calibration_eps cpu` | Force CPU-only (skip GPU EPs) |
-| `--high_precision_dtype fp32` | Keep fp32 for non-quantized ops (default in `modelopt-onnx-ptq quantize`; Model Opt CLI defaults to fp16) |
+| `--high_precision_dtype` | **`fp16`** is the default in **`modelopt-onnx-ptq quantize`** (matches typical Model Optimizer defaults). Use **`fp32`** if shape inference or PTQ fails on tricky heads. |
 
 ## Step 5: Validate Output
 

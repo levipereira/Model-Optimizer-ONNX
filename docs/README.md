@@ -14,6 +14,7 @@
 | [YOLO26n end-to-end PTQ workflow](yolo26n-end-to-end-ptq-workflow.md) | Prerequisites (Ultralytics or DeepStream-Yolo export, `download-coco`, ONNX in `models/`); then baseline **`pipeline-e2e`** → **`trex-analyze`** → YAML profile → **`pipeline-e2e` + `--quantize-profile`**; charts + session report link |
 | [CLI reference](cli-reference.md) | `modelopt-onnx-ptq` subcommands (**`eval-trt`** **`--output-format`** / **`auto`** + **`--onnx`**; **`trex-analyze`** — at most one of **`--graph`** \| **`--report`** \| **`--compare`**) |
 | [Artifacts & logging](artifacts-and-logging.md) | `artifacts/` layout, session naming, log files |
+| [Workflow diagrams (PNGs)](images/README.md) | README pipeline / TREx images (`docs/images/*.png`) |
 | [Docker reference](docker-reference.md) | Base image, build args, environment variables, optional **TREx** (`/workspace/TREx`, engine profiling) |
 | [Troubleshooting](troubleshooting.md) | Common errors (CUDA/ORT, TRT, dynamic shapes) |
 | [License & attribution](license-and-attribution.md) | Apache 2.0, third-party components |
@@ -37,6 +38,6 @@ Pinned versions for the **recommended environment** match [`docker/Dockerfile`](
 
 ## Quick links
 
-- [README](../README.md) (repository overview and badges)
+- [README](../README.md) (repository overview, badges, [pipeline diagram](../README.md#pipeline), [TREx diagram](../README.md#trex-workflow-diagram))
 - [Model Optimizer — ONNX PTQ example](https://github.com/NVIDIA/Model-Optimizer/tree/main/examples/onnx_ptq)
 - [ONNX quantization guide](https://nvidia.github.io/Model-Optimizer/guides/_onnx_quantization.html)

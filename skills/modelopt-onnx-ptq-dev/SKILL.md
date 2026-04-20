@@ -1,25 +1,25 @@
 ---
 name: modelopt-onnx-ptq-dev
 description: >-
-  Model-Optimizer-ONNX: repo layout, project rules, ONNX PTQ (Model Optimizer),
-  Docker/CUDA, calibration, pipeline-e2e / trt-bench / eval-trt, YAML profiles,
-  backbone-neck-head Conv whitelists, and troubleshooting. Use the umbrella
-  file for conventions; use skills/onnx-ptq, skills/ptq-trt-performance, and
-  skills/modelopt-troubleshooting for full step-by-step and API tables.
+  modelopt-onnx-ptq repository: layout, coding rules, ONNX PTQ (NVIDIA Model Optimizer),
+  Docker/CUDA, full CLI (download-coco through trex-analyze), pipeline-e2e, YAML profiles,
+  eval-trt I/O (onnx-eval-io-autodetect), and troubleshooting pointers. Use for refactors,
+  new CLI flags, or aligning docs/skills with code.
 ---
 
 # Model-Optimizer-ONNX — development skill (umbrella)
 
-**Agent Skills** for this project live under **`skills/`**: this umbrella file plus domain skills (onnx-ptq, ptq-trt-performance, modelopt-troubleshooting). See **[`skills/README.md`](../README.md)** for how to use them.
+**Agent Skills** for this project live under **`skills/`** (published on GitHub; portable to Claude Code, Cursor, or other agents). See **[`skills/README.md`](../README.md)**.
 
 **Bundled domain skills:**
 
 | Path | Contents |
 |------|----------|
-| [`skills/onnx-ptq/SKILL.md`](onnx-ptq/SKILL.md) | PTQ workflow (env → calib → quantize → validate → build-trt), mode/method tables, autotune presets. |
-| [`skills/onnx-ptq/reference.md`](onnx-ptq/reference.md) | `quantize()` signature, modelopt CLI flags, opset table, EP resolution, AutoCast API. |
-| [`skills/ptq-trt-performance/SKILL.md`](ptq-trt-performance/SKILL.md) | mAP vs QPS methodology, `pipeline-e2e` / `report-runs`, **backbone / neck / head** Conv enumeration and `include_nodes` regex workflow. |
-| [`skills/modelopt-troubleshooting/SKILL.md`](modelopt-troubleshooting/SKILL.md) | libcublas, EP errors, autotune Concat issues, `QuantizeLinear` / trtexec parse errors, OOM. |
+| [`skills/onnx-ptq/SKILL.md`](../onnx-ptq/SKILL.md) | PTQ workflow (env → download-coco → calib → quantize → validate → build-trt), CLI index, mode/method tables, autotune. |
+| [`skills/onnx-ptq/reference.md`](../onnx-ptq/reference.md) | `quantize()` signature, `python -m modelopt.onnx.quantization` flags, opset, EP resolution. |
+| [`skills/ptq-trt-performance/SKILL.md`](../ptq-trt-performance/SKILL.md) | mAP vs QPS, `pipeline-e2e`, `report-runs`, backbone/neck/head `include_nodes`, `trex-analyze`. |
+| [`skills/onnx-eval-io-autodetect/SKILL.md`](../onnx-eval-io-autodetect/SKILL.md) | `eval-trt` **`--output-format auto`**, Ultralytics vs DeepStream layouts, **`--input-name`**, roadmap. |
+| [`skills/modelopt-troubleshooting/SKILL.md`](../modelopt-troubleshooting/SKILL.md) | libcublas, EP errors, autotune Concat, `QuantizeLinear` / trtexec parse errors, OOM. |
 
 **Privacy:** Do not embed customer hostnames, internal IPs, or credentials in skills or issues.
 
@@ -33,14 +33,15 @@ The sections below collect **maintainer conventions** for this repository. If a 
 
 ONNX post-training quantization (PTQ) pipeline for object-detection and vision ONNX models using **NVIDIA Model Optimizer** (`nvidia-modelopt[onnx]`), calibrated with COCO val2017 data, targeting TensorRT deployment.
 
-**Upstream pin:** [`docker/Dockerfile`](../docker/Dockerfile) installs **`nvidia-modelopt[onnx]==0.43.0`** from NVIDIA PyPI (`MODELOPT_VERSION`; override at `docker build --build-arg MODELOPT_VERSION=…`).
+**Upstream pin:** [`docker/Dockerfile`](../../docker/Dockerfile) installs **`nvidia-modelopt[onnx]==0.43.0`** from NVIDIA PyPI (`MODELOPT_VERSION`; override at `docker build --build-arg MODELOPT_VERSION=…`).
 
 **Repository layout**
 
 | Path | Purpose |
 |------|---------|
 | `docker/` | Container image definition; **TREx** under `/workspace/TREx` in **`env_trex`** (`install.sh --venv --full`), separate from `modelopt-onnx-ptq` — see `docs/docker-reference.md` |
-| `modelopt_onnx_ptq/`, `pyproject.toml` | Installable package (`pip install .`); CLI: **`modelopt-onnx-ptq`** (`download-coco`, `calib`, `quantize`, `build-trt`, `trt-bench`, `eval-trt`, `report-runs` with optional `--session-id`, `pipeline-e2e` includes FP16 baseline + PTQ) |
+| `modelopt_onnx_ptq/`, `pyproject.toml` | Installable package (`pip install .`); CLI **`modelopt-onnx-ptq`** — see **CLI commands** below |
+| `skills/` | Portable Agent Skills for coding agents (this umbrella + domain skills) |
 | `models/` | Input ONNX weights (user-provided) |
 | `data/coco/` | Datasets (`val2017/`, `annotations/`); large files gitignored |
 | `artifacts/calibration/` | Calibration tensors (e.g. `calib_coco.npy`); gitignored |
@@ -49,6 +50,24 @@ ONNX post-training quantization (PTQ) pipeline for object-detection and vision O
 | `artifacts/predictions/` | COCO eval JSON exports; gitignored |
 
 Optional reference trees under `.garbage_data/source/` are not part of the maintained workflow.
+
+### CLI commands (`modelopt-onnx-ptq`)
+
+Source of truth: `modelopt_onnx_ptq/cli.py` and per-module `--help`.
+
+| Command | Purpose |
+|---------|---------|
+| `download-coco` | COCO val2017 + annotations → `data/coco` (or `--output-dir`) |
+| `calib` | Calibration `.npy` from image folders |
+| `quantize` | Model Optimizer PTQ; `--autotune` with presets `quick`, `default`, `extensive` (int8/fp8) |
+| `build-trt` | TensorRT engine from ONNX; `--mode` strongly-typed, best, fp16, fp16-int8 |
+| `trt-bench` | Throughput/latency on an existing `.engine` |
+| `eval-trt` | COCO mAP; `--output-format auto\|…` and optional `--onnx` |
+| `report-runs` | Markdown report from logs; `--session-id` → `artifacts/pipeline_e2e/sessions/…` |
+| `pipeline-e2e` | End-to-end: calib → FP16 baseline → quantize → build-trt → eval-trt → trt-bench → report |
+| `trex-analyze` | TREx / trtexec profiling (needs **`TREX_VENV`**) |
+
+Aliases in code: `download_coco`, `eval_trt`, `build_trt`, `trt_bench`, `report_runs`, `pipeline_e2e`, `trex_analyze`, `e2e`.
 
 **Pipeline (correct order)**
 
@@ -224,7 +243,7 @@ This applies to **all** file types: `.py`, `Dockerfile`, `.sh`, `.yaml`, etc.
 
 ### A.6 ONNX quantization with Model Optimizer
 
-See also **[`skills/onnx-ptq/SKILL.md`](onnx-ptq/SKILL.md)** and **[`skills/onnx-ptq/reference.md`](onnx-ptq/reference.md)**.
+See also **[`skills/onnx-ptq/SKILL.md`](../onnx-ptq/SKILL.md)** and **[`skills/onnx-ptq/reference.md`](../onnx-ptq/reference.md)**.
 
 **Primary API**
 
@@ -254,7 +273,7 @@ python -m modelopt.onnx.quantization \
   --autotune=default
 ```
 
-**Note:** The CLI flag is `--calibration_data_path` (not `--calibration_data`).
+**Note:** Upstream **`python -m modelopt.onnx.quantization`** uses **`--calibration_data_path`**. This repo’s wrapper **`modelopt-onnx-ptq quantize`** uses **`--calibration_data`** (passthrough to the same pipeline).
 
 **Dynamic heads / tricky exports:** **`modelopt-onnx-ptq quantize`** defaults **`--high_precision_dtype`** to **`fp16`**. If `infer_shapes` fails, use **`fp32`**.
 
@@ -375,12 +394,12 @@ Bind-mount persistent dirs (`models/`, `data/`, `artifacts/`). Optional dev moun
 
 ### A.9 PTQ / TensorRT performance measurement
 
-Read **[`skills/ptq-trt-performance/SKILL.md`](ptq-trt-performance/SKILL.md)** first for pitfalls (session-only reports, TRT build modes) and the **backbone / neck / head** whitelist workflow (enumerate Convs → Netron cuts → regex `include_nodes` → validate → quantize/bench). User-facing docs: **`docs/quantization-performance-workflow.md`**, **`docs/workflow.md`** (`--quant-matrix`).
+Read **[`skills/ptq-trt-performance/SKILL.md`](../ptq-trt-performance/SKILL.md)** first for pitfalls (session-only reports, TRT build modes) and the **backbone / neck / head** whitelist workflow (enumerate Convs → Netron cuts → regex `include_nodes` → validate → quantize/bench). User-facing docs: **`docs/quantization-performance-workflow.md`**, **`docs/workflow.md`** (`--quant-matrix`).
 
 **Automated grid**
 
 1. **`pipeline-e2e --onnx models/…onnx`** — required.
-2. **`--input-name`** / **`--output-format`** — must match the export (e.g. `input` + `ultralytics`).
+2. **`--output-format`** — default **`auto`** (recommended); set **`--input-name`** if **build-trt** cannot infer the ONNX input tensor name.
 3. **`--quant-matrix all`** (or `int8.all`, `fp8.entropy`, …) — selects PTQ combos.
 4. Optional **`--quantize-profile`** — YAML applied to every `quantize` (e.g. a profile under `modelopt_onnx_ptq/profiles/`).
 5. Optional **`--high-precision-dtype fp16`** — high-precision strips in FP16 after PTQ.
@@ -404,10 +423,11 @@ Do not commit calibration `.npy`, engines, or large binaries.
 
 | Need | Open |
 |------|------|
-| Step-by-step PTQ + pipeline-e2e one-liners | [`skills/onnx-ptq/SKILL.md`](onnx-ptq/SKILL.md) |
-| `quantize()` / CLI flag table / opset / AutoCast | [`skills/onnx-ptq/reference.md`](onnx-ptq/reference.md) |
-| Benchmarking, `report-runs`, backbone-neck-head splits | [`skills/ptq-trt-performance/SKILL.md`](ptq-trt-performance/SKILL.md) |
-| Environment and runtime errors | [`skills/modelopt-troubleshooting/SKILL.md`](modelopt-troubleshooting/SKILL.md) |
+| Step-by-step PTQ + pipeline-e2e one-liners | [`skills/onnx-ptq/SKILL.md`](../onnx-ptq/SKILL.md) |
+| `quantize()` / CLI flag table / opset / AutoCast | [`skills/onnx-ptq/reference.md`](../onnx-ptq/reference.md) |
+| Benchmarking, `report-runs`, backbone-neck-head splits | [`skills/ptq-trt-performance/SKILL.md`](../ptq-trt-performance/SKILL.md) |
+| `eval-trt` layouts, `--output-format auto` | [`skills/onnx-eval-io-autodetect/SKILL.md`](../onnx-eval-io-autodetect/SKILL.md) |
+| Environment and runtime errors | [`skills/modelopt-troubleshooting/SKILL.md`](../modelopt-troubleshooting/SKILL.md) |
 | CLI flags for this repo | `docs/cli-reference.md` |
 
 ---

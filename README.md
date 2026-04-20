@@ -5,24 +5,24 @@
 [![TensorRT](https://img.shields.io/badge/NGC%20TensorRT-26.02--py3-76B900?logo=nvidia&logoColor=white)](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/tensorrt)
 [![Model Optimizer](https://img.shields.io/badge/NVIDIA%20Model%20Optimizer-GitHub%20%7C%20onnx-76B900?logo=nvidia&logoColor=white)](https://github.com/NVIDIA/Model-Optimizer)
 [![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime%20GPU-CUDA%2013%20nightly-005CED?logo=onnx&logoColor=white)](https://onnxruntime.ai/)
-[![modelopt-onnx-ptq](https://img.shields.io/badge/modelopt--onnx--ptq-v0.1.0-3775A9?logo=pypi&logoColor=white)](pyproject.toml)
+[![modelopt-onnx-ptq](https://img.shields.io/badge/modelopt--onnx-ptq-v0.1.0-3775A9?logo=pypi&logoColor=white)](pyproject.toml)
 [![Context7](https://img.shields.io/badge/Context7-Docs-blue?logo=data:image/svg%2bxml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSIxMCIgZmlsbD0id2hpdGUiLz48dGV4dCB4PSI3IiB5PSIxNyIgZm9udC1zaXplPSIxNCIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtd2VpZ2h0PSJib2xkIiBmaWxsPSIjMjU2M0VCIj5DPC90ZXh0Pjwvc3ZnPg==)](https://context7.com/levipereira/model-optimizer-onnx)
 [![mAP, latency & PTQ settings](https://img.shields.io/badge/mAP%2C%20latency%20%26%20PTQ%20settings%20(ref)-in%20progress-F59E0B)](https://github.com/levipereira/Model-Optimizer-ONNX/discussions)
 
-**ONNX PTQ** and **TensorRT** helpers for **exported ONNX** object-detection models — [NVIDIA Model Optimizer](https://github.com/NVIDIA/Model-Optimizer), COCO calibration, optional **`quantize --autotune`** ([workflow](docs/workflow.md)).
+**modelopt-onnx-ptq** is a CLI for **ONNX post-training quantization (PTQ)** and **TensorRT** on **exported** object-detection ONNX models: [NVIDIA Model Optimizer](https://github.com/NVIDIA/Model-Optimizer), COCO calibration, **`quantize`** (optional **`--autotune`**), **`build-trt`**, **`eval-trt`**, **`pipeline-e2e`**, and reports. Training and export to ONNX stay **outside** this repo — you start from **`models/*.onnx`**.
 
 | | |
 |--|--|
 | **CLI** | `modelopt-onnx-ptq` |
 | **Docs** | [`docs/README.md`](docs/README.md) |
-| **AI coding agents** | [`skills/README.md`](skills/README.md) — Agent Skills, conventions, PTQ/TRT workflows for assistants |
+| **AI coding agents** | [`skills/README.md`](skills/README.md) |
 
 ---
 
 ## Table of Contents
 
-- [Community](#community)
 - [Pipeline](#pipeline)
+- [TREx workflow (diagram)](#trex-workflow-diagram)
 - [Quick Steps](#quick-steps)
 - [Supported Output Formats](#supported-output-formats)
 - [Technology Stack](#technology-stack)
@@ -31,45 +31,26 @@
   - [Prerequisites](#prerequisites)
   - [Run with Docker (default)](#run-with-docker-default)
   - [Local Installation (optional)](#local-installation-optional)
+- [Community](#community)
 - [License](#license)
-
----
-
-## Community
-
-**Do not open [Issues](https://github.com/levipereira/Model-Optimizer-ONNX/issues) for questions or for posting results and findings** (benchmarks, mAP, parameter setups, “what worked for my model,” and similar). Use **[GitHub Discussions](https://github.com/levipereira/Model-Optimizer-ONNX/discussions)** for that.
-
-Please read the pinned **[welcome announcement](https://github.com/levipereira/Model-Optimizer-ONNX/discussions/1)** — it describes how we use Discussions (questions, results, recipes per model, ideas for the project) and that **[Issues](https://github.com/levipereira/Model-Optimizer-ONNX/issues) are reserved for confirmed bugs** with clear, reproducible steps (versions, commands, minimal inputs).
-
-**Status (maintainer):** Published **reference results** are **not** posted yet — that work is **still in progress**. Those will include **COCO mAP** (accuracy) and **latency** (timing / throughput), plus **recommended PTQ settings** — quantization **precision** (e.g. int8, int4, fp8) and **calibration / quantizer methods** (e.g. entropy), as used in **`quantize`**. The Discussions category for results and recipes is open for the community; official tables and maintainer write-ups will be added when ready.
 
 ---
 
 ## Pipeline
 
-**Training and ONNX export are not part of this repo.** Produce checkpoints and **export to ONNX in your original training or deployment framework** (PyTorch, Ultralytics, DeepStream-Yolo exporters, etc.). Commands that load weights (e.g. `.pt`) and write `.onnx` — including flags for dynamic axes, opset, graph simplification, and output tensor layout — are **external** to **Model-Optimizer-ONNX**: they are **not** implemented here and **not** run by `modelopt-onnx-ptq`. This project assumes you already have **`models/*.onnx`** that match how you will calibrate and evaluate. The diagram below shows **only the logical flow** so names and preprocessing stay consistent end-to-end.
+![modelopt-onnx-ptq pipeline flow](docs/images/pipeline-flow.png)
 
-**Fastest path:** **`modelopt-onnx-ptq pipeline-e2e --onnx models/…onnx`** — runs **calib**, a **TensorRT FP16 baseline** on the original ONNX (for side-by-side comparison with quantized engines in the report), then each **quantize → build-trt → eval-trt → trt-bench** combo, and **`report-runs`** (session logs under `artifacts/pipeline_e2e/sessions/…`). See [workflow](docs/workflow.md).
+Export and training are **not** in this project — bring **`models/*.onnx`** from your stack (Ultralytics, DeepStream-Yolo, etc.). Then: **`download-coco`** → **`calib`** → **`quantize`** (optional **`--autotune`**) → **`build-trt`** → **`eval-trt`** / **`trt-bench`**; or run everything with **`pipeline-e2e --onnx models/…onnx`** (FP16 baseline + PTQ matrix + **`report-runs`** under `artifacts/pipeline_e2e/sessions/…`). Details: [docs/workflow.md](docs/workflow.md).
 
-**Manual PTQ path:** **calib** → **quantize** → **build-trt** → **eval-trt** → **trt-bench** (optional **`--autotune`** on `quantize`). You can **compare FP16 vs quantized** by also running **`build-trt --mode fp16`** on the original ONNX and then **eval-trt** / **trt-bench** on that engine (see [workflow](docs/workflow.md)). For a **report**, use **`report-runs`**, or set **`export SESSION_ID=…`** once (or pass the same **`--session-id`** on each command) so **`build-trt`**, **`eval-trt`**, **`trt-bench`**, and **`report-runs`** use one session directory.
+---
 
-```mermaid
-flowchart TD
-  subgraph EXT["Outside this repository"]
-    A[Trained weights] --> B["Export to ONNX<br/>(CLI / API / Script .py)"]
-  end
-  B --> C[models/*.onnx]
-  C --> H[download-coco]
-  H --> I[modelopt-onnx-ptq calib]
-  I --> J[artifacts/calibration/*.npy]
-  J --> Q["modelopt-onnx-ptq quantize<br/>(--autotune quick|default|extensive — optional)"]
-  Q --> L[artifacts/quantized/*.quant.onnx]
-  L --> M[modelopt-onnx-ptq build-trt]
-  M --> N[artifacts/trt_engine/*.engine]
-  N --> O[modelopt-onnx-ptq eval-trt<br/>COCO mAP]
-```
+## TREx workflow diagram
 
-*Details, `pipeline-e2e`, and report: [docs/workflow.md](docs/workflow.md)*
+Optional **TensorRT Engine Explorer** profiling (`env_trex`, **`trex-analyze`**, **`process_engine.py`**, notebooks) — **not** required for PTQ.
+
+![TREx profiling workflow](docs/images/trex-workflow.png)
+
+Diagram sources: [`docs/images/`](docs/images/README.md).
 
 ---
 
@@ -231,6 +212,15 @@ modelopt-onnx-ptq --help
 ```
 
 You still need a matching CUDA / TensorRT / ONNX Runtime stack on the host; the Docker image is the supported baseline.
+
+---
+
+## Community
+
+- **[Discussions](https://github.com/levipereira/Model-Optimizer-ONNX/discussions)** — questions, benchmarks, results, PTQ recipes per model. Read the [welcome thread](https://github.com/levipereira/Model-Optimizer-ONNX/discussions/1).
+- **[Issues](https://github.com/levipereira/Model-Optimizer-ONNX/issues)** — **confirmed bugs** only, with versions, commands, and a minimal repro.
+
+Official reference tables (mAP, latency, recommended PTQ settings) are **in progress**; the community can still share findings in Discussions.
 
 ---
 

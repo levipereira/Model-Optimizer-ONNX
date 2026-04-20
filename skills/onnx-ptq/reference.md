@@ -44,6 +44,8 @@ def quantize(
 
 ## CLI Flags (`python -m modelopt.onnx.quantization`)
 
+For **`modelopt-onnx-ptq quantize`**, this repository exposes **`--calibration_data`** (path to `.npy`); it maps to **`--calibration_data_path`** when invoking upstream. Prefer **`modelopt-onnx-ptq quantize --help`** for wrapper-only options (**`--profile`**, **`--autotune`**, …).
+
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--onnx_path` | str | required | Input ONNX path |

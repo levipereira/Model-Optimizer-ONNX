@@ -40,9 +40,9 @@ modelopt:
   include_nodes:
     - "^node_conv2d(?:_([1-9]|[12][0-9]|3[0-9]))?$"
 
-  exclude_op_types:
-    - Sigmoid
-    - Softmax
+#  exclude_op_types:
+#    - Sigmoid
+#    - Softmax
 
   exclude_nodes:
     # SiLU: second Mul in this ONNX (87 nodes); do not use exclude_op_types: Mul
